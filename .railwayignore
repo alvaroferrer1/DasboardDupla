@@ -1,0 +1,7 @@
+# Evita enviar archivos innecesarios durante railway up
+preview/
+*.png
+INICIO_WINDOWS.bat
+INICIO_MAC.command
+backups/
+private-backups/

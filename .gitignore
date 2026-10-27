@@ -1,0 +1,21 @@
+node_modules
+.env
+data/*
+!data/.gitkeep
+.DS_Store
+private-backups/
+backups/
+*.log
+
+guardian-output/
+
+.local-private/
+logs-private/
+# Cloudflare secrets/cache
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Capturas de verificacion locales
+.capturas/

@@ -1,0 +1,37 @@
+{
+  "project": "DOS ESPACIOS V4.4",
+  "verified_at": "2026-10-18T19:26:10.888376+00:00",
+  "npm_test": {
+    "tests": 37,
+    "passed": 37,
+    "failed": 0
+  },
+  "syntax_cloud": "passed",
+  "browser_static_fixture": {
+    "desktop": "rendered with no JavaScript exceptions",
+    "mobile": "rendered with no JavaScript exceptions",
+    "mobile_horizontal_overflow": false,
+    "desktop_horizontal_overflow": "observed: scrollWidth 1598 at 1400 viewport; requires correction"
+  },
+  "deployment": {
+    "cloudflare_real": "not tested, account not connected",
+    "https_live": "not tested",
+    "live_two_user_browser": "not tested",
+    "real_cloudflare_websocket": "not tested"
+  },
+  "security_changes": [
+    "origin-matched HTTPS WebSocket handshakes",
+    "revalidate session on websocket notifications",
+    "reject falsely-declared image/pdf binary uploads",
+    "restrict direct CSRF origin to HTTPS (local opt-in development)",
+    "manual smoke checker for HTTPS deployed URL"
+  ],
+  "release_decision": "BLOCKED_PENDING_CLOUDFLARE_AUTH_AND_LIVE_TESTS",
+  "limitations": [
+    "No independent penetration test",
+    "Backup manual JSON not auto-restorable",
+    "No browser-to-live backend E2E due environment network policy",
+    "Desktop visual overflow recorded",
+    "Cloudflare account must approve deploy"
+  ]
+}

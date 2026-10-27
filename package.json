@@ -1,0 +1,39 @@
+{
+  "name": "dos-espacios",
+  "version": "5.8.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "setup": "node scripts/setup.mjs",
+    "check": "node --check scripts/make-private-setup.mjs && node --check server.mjs && node --check db.mjs && node --check public/app.js && node --check scripts/setup.mjs && node --check scripts/backup.mjs",
+    "backup": "node scripts/backup.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "guardian": "node ops/guardian.mjs --project DOS_ESPACIOS --run-tests",
+    "guardian:private": "node ops/guardian.mjs --project DOS_ESPACIOS --run-tests --out guardian-output && node ops/publish-report.mjs guardian-output/report.json",
+    "check:public": "node scripts/check-public.mjs",
+    "check:cloud": "node --check scripts/cloud-smoke.mjs && node --check edge/worker.mjs && node --check edge/api.mjs && node --check edge/db.mjs && node --check edge/schema.mjs && node --check edge/public/app.js && node --check edge/origin.mjs && node --check edge/integrations.mjs && node --check edge/google-calendar.mjs && node --check scripts/comprobar-dupla-en-nube.mjs && node --check scripts/comprobar-websocket-nube.mjs && node --check scripts/websocket-verify.mjs && node --check scripts/auditar-servicios-reales.mjs && node --check edge/design-providers.mjs && node --check edge/web-push.mjs && node --check edge/public/push-sw.js && node --check edge/v6.mjs",
+    "cloud:dev": "npx --yes wrangler@4 dev",
+    "cloud:deploy": "npx --yes wrangler@4 deploy",
+    "check:live": "node scripts/cloud-smoke.mjs",
+    "test:calendar:live": "node scripts/verificar-calendario-conjunto-real.mjs",
+    "test:e2e:cloud": "node scripts/comprobar-dupla-en-nube.mjs && node scripts/comprobar-websocket-nube.mjs",
+    "verificar": "npm run --silent check:cloud && node --test tests/*.test.mjs",
+    "captura": "node scripts/captura.mjs",
+    "credencial": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/guardar-credencial.ps1",
+    "google": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/google-oauth.ps1",
+    "publicar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publicar.ps1",
+    "publicar:ensayo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publicar.ps1 -Ensayo",
+    "deshacer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deshacer.ps1"
+  },
+  "devDependencies": {
+    "http_ece": "^1.2.1",
+    "jspdf": "^2.5.2",
+    "playwright-core": "^1.64.1",
+    "wrangler": "^4.151.3"
+  }
+}

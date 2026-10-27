@@ -1,0 +1,31 @@
+name: DOS ESPACIOS Quality Gates
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax
+        run: npm run check
+      - name: Automated tests on temporary database
+        run: npm test
+      - name: Guardian static review
+        run: node ops/guardian.mjs --project DOS_ESPACIOS --out guardian-output
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: guardian-quality-evidence
+          path: guardian-output/
+          retention-days: 14

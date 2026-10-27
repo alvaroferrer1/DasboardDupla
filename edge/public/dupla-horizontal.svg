@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="210" viewBox="0 0 800 210" role="img" aria-label="DUPLA — Dos universos. Un lugar.">
+<title>DUPLA · Dos universos. Un lugar.</title>
+<g transform="translate(12,8) scale(1.12)"><path d="M20 76C20 38 41 18 79 18H82C116 18 137 38 137 70V88H104V70C104 56 96 51 81 51H78C62 51 53 60 53 78V125C53 135 46 142 36 142C26 142 20 135 20 125Z" fill="#172942"/><rect x="80" y="77" width="64" height="66" rx="30" fill="#F1B18F"/><path d="M80 77H107C126 77 136 91 136 110V111H107C91 111 80 98 80 81Z" fill="#A7B7F7" opacity=".92"/></g>
+<text x="202" y="110" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-weight="800" font-size="99" letter-spacing="5" fill="#172942">DUPLA</text>
+<text x="206" y="154" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="23" letter-spacing="2" fill="#687790">Dos universos.</text>
+<text x="426" y="154" font-family="Inter, 'Segoe UI', Arial, sans-serif" font-size="23" letter-spacing="2" fill="#D89674">Un lugar.</text>
+</svg>

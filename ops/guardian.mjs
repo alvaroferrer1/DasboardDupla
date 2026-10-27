@@ -1,0 +1,16 @@
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {resolve,join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {dirname} from 'node:path';
+import {buildReport,htmlReport} from './guardian-core.mjs';
+const args=process.argv.slice(2);const value=(k,defaultValue)=>{const i=args.indexOf(k);return i>=0?args[i+1]:defaultValue};
+const root=resolve(value('--root',resolve(dirname(fileURLToPath(import.meta.url)),'..')));
+const out=resolve(value('--out',join(process.cwd(),'guardian-output')));
+const project=value('--project','DOS ESPACIOS');
+const ecommerce=args.includes('--ecommerce');
+const checks=args.includes('--run-tests');
+const commands=checks?[['npm','run','check'],['npm','test']]:[];
+const report=buildReport(root,{project,ecommerce,commands});
+mkdirSync(out,{recursive:true});writeFileSync(join(out,'report.json'),JSON.stringify(report,null,2));writeFileSync(join(out,'dashboard.html'),htmlReport(report));
+console.log(JSON.stringify({project,decision:report.release_decision,counts:report.evaluation.counts,tests:report.tests.map(x=>({command:x.command,passed:x.passed})),outputs:[join(out,'report.json'),join(out,'dashboard.html')]},null,2));
+if(report.tests.some(x=>!x.passed))process.exitCode=1;

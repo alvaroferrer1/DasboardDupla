@@ -1,0 +1,30 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { schema } from '../edge/schema.mjs';
+const api=readFileSync(new URL('../edge/api.mjs',import.meta.url),'utf8');
+const ui=readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8');
+const route="if(path==='/api/action-center'&&req.method==='GET')";
+test('action center: el endpoint se ejecuta después de auth(req)',()=>{
+ assert.ok(api.indexOf(route)>api.indexOf('const u=auth(req);'));
+ assert.ok(ui.includes("case 'action-toggle':"));
+ assert.ok(ui.includes("case 'actions-filter':"));
+ assert.ok(ui.includes("case 'actions':return actionCenterPage()"));
+ assert.ok(ui.includes("if(navEl.dataset.nav==='actions')S.actionData=await api('/api/action-center')"));
+});
+test('action center: filtra proyectos archivados o borrados y lista tareas guardadas',()=>{
+ const m=api.match(/const tasks=all\(`(SELECT t\.id,t\.project_id[\s\S]*?LIMIT 500)`\);/);
+ assert.ok(m,'La consulta del centro de acciones existe');
+ const db=new DatabaseSync(':memory:');db.exec(schema);db.exec("ALTER TABLE tasks ADD COLUMN recurrence TEXT DEFAULT 'none'; ALTER TABLE tasks ADD COLUMN blocked_by TEXT");
+ db.prepare('INSERT INTO users(id,name,email,password_hash,created_at) VALUES(?,?,?,?,?)').run('u1','A','a@ex.test','x','2026-10-19');
+ const addProject=db.prepare('INSERT INTO projects(id,space,title,created_at,updated_at,archived,deleted_at) VALUES(?,?,?,?,?,?,?)');
+ addProject.run('p1','work','Proyecto visible','2026-10-19','2026-10-19',0,null);
+ addProject.run('p2','couple','Archivado','2026-10-19','2026-10-19',1,null);
+ addProject.run('p3','work','Borrado','2026-10-19','2026-10-19',0,'2026-10-19');
+ const addTask=db.prepare('INSERT INTO tasks(id,project_id,title,created_at,updated_at) VALUES(?,?,?,?,?)');
+ for(const p of ['p1','p2','p3'])addTask.run('t'+p,p,'Tarea '+p,'2026-10-19','2026-10-19');
+ const rows=db.prepare(m[1]).all();
+ assert.equal(rows.length,1);assert.equal(rows[0].project_title,'Proyecto visible');assert.equal(rows[0].title,'Tarea p1');
+ db.close();
+});

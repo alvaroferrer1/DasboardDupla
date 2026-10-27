@@ -1,0 +1,21 @@
+# Archivos privados y materiales que no debe recibir el constructor Docker
+.env
+.env.*
+!.env.example
+data/
+backups/
+private-backups/
+.git/
+node_modules/
+preview/
+tests/
+docs/
+*.zip
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store
+
+.local-private/
+logs-private/

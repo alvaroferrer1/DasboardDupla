@@ -1,0 +1,1 @@
+Capturas generadas en Chromium con el CSS y JS de DOS ESPACIOS V4 y respuestas de API obtenidas del servidor real de pruebas, servidas como *fixtures locales*. No son capturas de la instancia alojada en Internet ni una prueba E2E navegador-servidor. No incluyen datos privados reales.

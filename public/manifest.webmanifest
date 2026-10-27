@@ -1,0 +1,24 @@
+{
+  "name": "DUPLA · Dos universos, un lugar",
+  "short_name": "DUPLA",
+  "description": "Trabajo y planes compartidos de forma privada.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f9fb",
+  "theme_color": "#182238",
+  "icons": [
+    {
+      "src": "/dupla-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/dupla-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

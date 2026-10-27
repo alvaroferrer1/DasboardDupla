@@ -1,0 +1,24 @@
+name: DOS ESPACIOS · Cloudflare quality
+on:
+  push:
+    paths:
+      - 'edge/**'
+      - 'tests/**'
+      - 'wrangler.jsonc'
+      - 'package.json'
+  pull_request:
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run check
+      - run: npm run check:cloud
+      - run: npm test
+      # Publishing deliberately excluded: always requires owner approval and Cloudflare authorization.

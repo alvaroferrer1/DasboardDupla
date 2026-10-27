@@ -1,0 +1,3 @@
+# Solo desarrollo local. NO subas secretos ni datos reales.
+# Copia a .dev.vars y usa una clave larga para pruebas, nunca la de produccion.
+SETUP_TOKEN="SUSTITUYE_POR_UN_SECRETO_ALEATORIO_DE_64_CARACTERES"
