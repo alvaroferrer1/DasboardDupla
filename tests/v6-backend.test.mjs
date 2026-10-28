@@ -751,3 +751,41 @@ test('Repaso del domingo: hecho, lo que viene, pendiente y gastado; avisa a los 
  assert.equal(f.db.prepare('SELECT count(*) n FROM notifications').get().n,before+2,'aviso a los dos');
  assert.equal((await f.call('/api/weekly-review','GET',undefined,c)).data.review.created_at,r.created_at);
 });
+
+test('Notas de avance en tareas (tablero y proyecto): quedan en la tarea, avisan al otro y solo las borra quien las escribió',async()=>{
+ const f=fixture();const a=await f.login();const b=await f.loginAs('b@dupla.test','clave-super-b-2345');
+ const uA=f.db.prepare("SELECT id FROM users WHERE email='a@dupla.test'").get().id,uB=f.db.prepare("SELECT id FROM users WHERE email='b@dupla.test'").get().id;
+ const bt=(await f.call('/api/board','POST',{title:'Mudanza'},a)).data.item;
+ let r=await f.call('/api/task-notes','POST',{kind_of:'board',id:bt.id,kind:'avance',content:'Cajas compradas'},a);assert.equal(r.status,201);assert.equal(r.data.items.length,1);
+ r=await f.call('/api/task-notes','POST',{kind_of:'board',id:bt.id,kind:'falta',content:'¿Qué día viene el camión?'},b);assert.equal(r.data.items.length,2);assert.equal(r.data.items[1].kind,'falta');
+ const toB=f.db.prepare("SELECT action,detail FROM notifications WHERE user_id=? AND action LIKE '%tarea%'").all(uB);assert.ok(toB.some(n=>n.action==='apuntó un avance en una tarea'&&/Mudanza: Cajas compradas/.test(n.detail)));
+ const toA=f.db.prepare("SELECT action FROM notifications WHERE user_id=?").all(uA);assert.ok(toA.some(n=>n.action==='pidió información en una tarea'));
+ assert.equal((await f.call('/api/board','GET',undefined,a)).data.items.find(x=>x.id===bt.id).notes_count,2);
+ assert.equal((await f.call(`/api/task-notes?kind=board&id=${bt.id}`,'GET',undefined,b)).data.items[0].content,'Cajas compradas');
+ assert.equal((await f.call('/api/task-notes','POST',{kind_of:'board',id:bt.id,kind:'otro',content:'x'},a)).status,400);
+ assert.equal((await f.call('/api/task-notes','POST',{kind_of:'board',id:bt.id,content:'  '},a)).status,400);
+ const mine=r.data.items[0].id;assert.equal((await f.call('/api/task-notes/'+mine,'DELETE',undefined,b)).status,403);assert.equal((await f.call('/api/task-notes/'+mine,'DELETE',undefined,a)).status,200);
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Boda de Lucía'},a)).data.project;await f.call(`/api/projects/${p.id}/tasks`,'POST',{title:'Comprar regalo'},a);
+ const tid=f.db.prepare('SELECT id FROM tasks WHERE project_id=?').get(p.id).id;
+ r=await f.call('/api/task-notes','POST',{kind_of:'project',id:tid,kind:'bloqueo',content:'La tienda está cerrada'},b);assert.equal(r.status,201);
+ assert.equal((await f.call('/api/projects/'+p.id,'GET',undefined,a)).data.project?.tasks?.[0]?.notes_count??(await f.call('/api/projects/'+p.id,'GET',undefined,a)).data.tasks?.[0]?.notes_count,1);
+ assert.equal((await f.call('/api/task-notes?kind=project&id=00000000-0000-0000-0000-000000000000','GET',undefined,a)).status,404);
+ // Borrar la tarea borra sus notas.
+ await f.call('/api/board/'+bt.id,'DELETE',undefined,a);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM task_notes WHERE board_id=?').get(bt.id).n,0);
+});
+
+test('Tarea vencida sin terminar: aviso a los dos una sola vez (tablero y proyecto), no si está hecha ni si venció hace días',async(t)=>{
+ const f=fixture();const a=await f.login();
+ const p=(await f.call('/api/projects','POST',{space:'work',title:'Web cliente'},a)).data.project;
+ await f.call(`/api/projects/${p.id}/tasks`,'POST',{title:'Entregar maqueta',due_date:'2026-11-04'},a);
+ await f.call('/api/board','POST',{title:'Renovar DNI',due_date:'2026-11-03'},a);
+ await f.call('/api/board','POST',{title:'Hecha',due_date:'2026-11-04',status:'done'},a);
+ await f.call('/api/board','POST',{title:'Muy antigua',due_date:'2026-10-20'},a);
+ await f.call('/api/board','POST',{title:'Aún a tiempo',due_date:'2026-11-05'},a);
+ t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-05T12:00:00Z')});
+ try{f.app.processReminders();f.app.processReminders();}finally{t.mock.timers.reset();}
+ const late=f.db.prepare("SELECT user_id,detail FROM notifications WHERE action='tarea vencida'").all();
+ assert.equal(late.length,4,JSON.stringify(late));
+ assert.ok(late.some(n=>/^Entregar maqueta · venció el 04\/11 y sigue sin terminar$/.test(n.detail)));assert.ok(late.some(n=>/^Renovar DNI · venció el 03\/11/.test(n.detail)));
+ assert.ok(!late.some(n=>/Hecha|Muy antigua|Aún a tiempo/.test(n.detail)));
+});

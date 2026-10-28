@@ -63,6 +63,9 @@ async function sembrar() {
   await angie(`/api/projects/${cena.id}/events`, { title: 'Yoga', event_date: hoy, event_time: '18:30' });
   const t1 = (await alvaro('/api/board', { title: 'Reservar hotel en Zaragoza', priority: 'urgent' })).item;
   await alvaro('/api/board', { title: 'Pagar la señal', parent_id: t1.id, priority: 'high' });
+  await alvaro('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'avance', content: 'He mirado 3 hoteles cerca del centro, el mejor es el Palafox.' });
+  await angie('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'falta', content: '¿Llegamos el viernes o el sábado? Sin eso no puedo reservar.' });
+  await alvaro('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'bloqueo', content: 'La web del hotel da error al pagar con tarjeta.' });
   await angie('/api/board', { title: 'Pedir cita médico', priority: 'normal', status: 'doing' });
   await angie('/api/board', { title: 'Comprar regalo', priority: 'low', status: 'done' });
   console.log('DATOS de ejemplo creados', [bud.title, ita.title, cena.title, web.title].join(' · '));

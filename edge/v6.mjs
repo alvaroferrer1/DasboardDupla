@@ -397,7 +397,7 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
     if(!r.ok)throw Error('HTTP '+r.status);const j=await r.json();const list=Array.isArray(j.iceServers)?j.iceServers:j.iceServers?[j.iceServers]:[];
     respond(res,200,{iceServers:list.length?list:[stun],turn:list.length>0});}catch(ex){console.error('TURN',String(ex.message||ex).slice(0,120));respond(res,200,{iceServers:[stun],turn:false});}return true;}
   // ---- Tablero de tareas (independiente de Trabajo y Nuestro espacio) ----
-  if(path==='/api/board'&&req.method==='GET'){respond(res,200,{items:all('SELECT b.*,us.name AS assignee_name,c.name AS author FROM board_tasks b LEFT JOIN users us ON us.id=b.assignee LEFT JOIN users c ON c.id=b.created_by ORDER BY b.sort,b.created_at')});return true;}
+  if(path==='/api/board'&&req.method==='GET'){respond(res,200,{items:all('SELECT b.*,us.name AS assignee_name,c.name AS author,(SELECT COUNT(*) FROM task_notes n WHERE n.board_id=b.id) AS notes_count FROM board_tasks b LEFT JOIN users us ON us.id=b.assignee LEFT JOIN users c ON c.id=b.created_by ORDER BY b.sort,b.created_at')});return true;}
   const bt=path.match(/^\/api\/board(?:\/([a-f0-9-]{36}))?$/);
   if(bt&&['POST','PATCH','DELETE'].includes(req.method)){const row=bt[1]?get('SELECT * FROM board_tasks WHERE id=?',bt[1]):null;if(bt[1]&&!row)fail(404,'Tarea no encontrada');if(!bt[1]&&req.method!=='POST')fail(405,'Método no permitido');
    if(req.method==='DELETE'){run('UPDATE board_tasks SET parent_id=NULL WHERE parent_id=?',row.id);run('DELETE FROM board_tasks WHERE id=?',row.id);logFree(u,'couple','eliminó una tarea del tablero',row.title);respond(res,200,{ok:true});return true;}
@@ -412,6 +412,18 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
    run('UPDATE board_tasks SET title=?,notes=?,status=?,assignee=?,priority=?,parent_id=?,due_date=?,sort=?,updated_at=?,done_at=? WHERE id=?',f.title,f.notes,f.status,f.assignee,f.priority,f.parent_id,f.due_date,f.sort,t,doneAt,row.id);
    const st={todo:'Pendiente',doing:'En proceso',blocked:'Parado',done:'Terminado'};if(f.status!==row.status)logFree(u,'couple','movió una tarea a «'+st[f.status]+'»',f.title);else if(f.assignee!==row.assignee&&f.assignee&&f.assignee!==u.id)logFree(u,'couple','te asignó una tarea',f.title);
    respond(res,200,{item:get('SELECT * FROM board_tasks WHERE id=?',row.id)});return true;}
+  // Notas de avance dentro de una tarea (de proyecto o del tablero): quedan en la tarea y avisan al otro.
+  const tn=path.match(/^\/api\/task-notes(?:\/([a-f0-9-]{36}))?$/);
+  if(tn){const target=(kind,id)=>{id=String(id||'');if(kind==='board'){const r=get('SELECT id,title FROM board_tasks WHERE id=?',id)||fail(404,'Tarea no encontrada');return {col:'board_id',id:r.id,title:r.title,pid:null};}
+    const r=get('SELECT id,title,project_id FROM tasks WHERE id=?',id)||fail(404,'Tarea no encontrada');project(r.project_id);return {col:'task_id',id:r.id,title:r.title,pid:r.project_id};};
+   const list=t=>all(`SELECT n.id,n.kind,n.content,n.created_at,n.user_id,us.name AS author FROM task_notes n LEFT JOIN users us ON us.id=n.user_id WHERE n.${t.col}=? ORDER BY n.created_at`,t.id);
+   if(req.method==='GET'&&!tn[1]){respond(res,200,{items:list(target(url.searchParams.get('kind'),url.searchParams.get('id')))});return true;}
+   if(req.method==='POST'&&!tn[1]){const b=await readBody(req),t=target(b.kind_of,b.id),kind=choice(b.kind||'avance',['avance','ayuda','bloqueo','falta']),content=requireText(b.content,'Nota',2000);
+    run(`INSERT INTO task_notes(id,${t.col},user_id,kind,content,created_at) VALUES(?,?,?,?,?,?)`,uid(),t.id,u.id,kind,content,now());
+    const act={avance:'apuntó un avance en una tarea',ayuda:'echó una mano en una tarea',bloqueo:'avisó de un bloqueo en una tarea',falta:'pidió información en una tarea'}[kind],det=`${t.title}: ${content}`.slice(0,220);
+    if(t.pid)logChange(project(t.pid),u,act,det);else logFree(u,'couple',act,det);respond(res,201,{items:list(t)});return true;}
+   if(req.method==='DELETE'&&tn[1]){const n=get('SELECT * FROM task_notes WHERE id=?',tn[1])||fail(404,'Nota no encontrada');if(n.user_id!==u.id)fail(403,'Solo quien escribió la nota puede borrarla');run('DELETE FROM task_notes WHERE id=?',n.id);respond(res,200,{ok:true});return true;}
+   fail(405,'Método no permitido');}
   // ---- Historial de presupuestos por destino y previsión del próximo viaje ----
   if(path==='/api/budget/notes'&&req.method==='GET'){const d=url.searchParams.get('destination');respond(res,200,{items:all('SELECT n.*,us.name AS author FROM dest_notes n LEFT JOIN users us ON us.id=n.created_by'+(d?' WHERE dest_key=?':'')+' ORDER BY dest,month',...(d?[normDest(d)]:[]))});return true;}
   if(path==='/api/budget/notes'&&req.method==='POST'){const b=await readBody(req),dest=requireText(b.destination,'Destino',120),month=Number(b.month)||0;if(month<0||month>12)fail(400,'Mes no válido');const id=uid();run('INSERT INTO dest_notes(id,dest_key,dest,month,text,created_by,created_at) VALUES(?,?,?,?,?,?,?)',id,normDest(dest),dest,month,requireText(b.text,'Aviso',300),u.id,now());logFree(u,'couple','añadió un aviso de destino',dest);respond(res,201,{id});return true;}
