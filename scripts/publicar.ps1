@@ -77,5 +77,9 @@ foreach ($i in 1..6) {
 }
 if (-not $ok) { throw 'El app.js publicado no coincide con el local. Revisa el despliegue (o npm run deshacer).' }
 
+Paso 'Copia del codigo en GitHub (lo publicado = lo que hay en GitHub)'
+& git push -q origin main $tag 2>$null
+$gh = if ($LASTEXITCODE -eq 0) { 'GitHub = web publicada.' } else { 'AVISO: no se pudo subir a GitHub; ejecuta: git push origin main --tags' }
+
 Write-Host "`nPUBLICADO Y VERIFICADO: $tag ($Url)" -ForegroundColor Green
-Write-Host 'Comprobado: salud OK, cuentas reconocidas, codigo en vivo = codigo local, copia de datos guardada.'
+Write-Host "Comprobado: salud OK, cuentas reconocidas, codigo en vivo = codigo local, copia de datos guardada. $gh"
