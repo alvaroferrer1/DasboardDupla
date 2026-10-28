@@ -789,3 +789,44 @@ test('Tarea vencida sin terminar: aviso a los dos una sola vez (tablero y proyec
  assert.ok(late.some(n=>/^Entregar maqueta · venció el 04\/11 y sigue sin terminar$/.test(n.detail)));assert.ok(late.some(n=>/^Renovar DNI · venció el 03\/11/.test(n.detail)));
  assert.ok(!late.some(n=>/Hecha|Muy antigua|Aún a tiempo/.test(n.detail)));
 });
+
+test('Finanzas: movimientos, comparativa con el periodo anterior, presupuesto por categoría, objetivos, facturas y gastos de proyectos',async(t)=>{
+ const f=fixture();const a=await f.login();const b=await f.loginAs('b@dupla.test','clave-super-b-2345');
+ const uB=f.db.prepare("SELECT id FROM users WHERE email='b@dupla.test'").get().id;
+ t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-10-28T12:00:00Z')});
+ try{
+  for(const [kind,amount,category,title,date] of [['in',4820,'','Nóminas','2026-10-01'],['out',1100,'hogar','Alquiler','2026-10-25'],['out',92,'comida','Supermercado','2026-10-19'],['in',4460,'','Nóminas','2026-09-01'],['out',3050,'hogar','Mudanza','2026-09-10']])
+   assert.equal((await f.call('/api/finance/moves','POST',{kind,amount,category,title,date,paid_by:uB},a)).status,201);
+  assert.equal((await f.call('/api/finance/moves','POST',{kind:'out',amount:0,category:'hogar',title:'x',date:'2026-10-01'},a)).status,400);
+  assert.equal((await f.call('/api/finance/moves','POST',{kind:'out',amount:5,category:'inventada',title:'x',date:'2026-10-01'},a)).status,400);
+  // Un gasto real de un viaje también cuenta (Ocio y viajes).
+  const p=(await f.call('/api/projects','POST',{space:'couple',title:'Escapada'},a)).data.project;
+  await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'Hotel',category:'stay',estimated:200,actual:180},a);
+  f.db.prepare("UPDATE expenses SET created_at='2026-10-20T10:00:00Z'").run();
+  assert.equal((await f.call('/api/finance/budgets','PUT',{limits:{hogar:1200,comida:600,ocio:100,salud:0}},a)).status,200);
+  assert.equal((await f.call('/api/finance/goals','POST',{title:'Viaje a Japón',target:5000,saved:2400,icon:'plane'},b)).status,201);
+  const gid=f.db.prepare('SELECT id FROM fin_goals').get().id;await f.call('/api/finance/goals/'+gid,'PATCH',{add:100},a);
+  assert.equal(f.db.prepare('SELECT saved FROM fin_goals').get().saved,2500);
+  assert.equal((await f.call('/api/finance/bills','POST',{title:'Luz',amount:64.5,category:'hogar',due_date:'2026-10-29',repeat:'monthly'},a)).status,201);
+  await f.call('/api/finance/bills','POST',{title:'Seguro coche',amount:300,category:'transporte',due_date:'2026-11-05'},a);
+  let s=(await f.call('/api/finance?period=month','GET',undefined,b)).data;
+  assert.equal(s.label,'Octubre 2026');assert.equal(s.kpis.income,4820);assert.equal(s.kpis.expense,1372);assert.equal(s.kpis.saving,3448);assert.equal(s.kpis.saving_pct,72);
+  assert.equal(s.kpis.income_prev,4460);assert.equal(s.kpis.expense_prev,3050);assert.equal(s.kpis.bills_pending,2);assert.equal(s.kpis.bill_next,'2026-10-29');
+  assert.deepEqual(s.series.map(x=>x.label),['May','Jun','Jul','Ago','Sep','Oct']);assert.equal(s.series[5].current,true);assert.equal(s.series[4].expense,3050);
+  const bud=Object.fromEntries(s.budgets.map(x=>[x.category,x]));assert.equal(bud.hogar.spent,1100);assert.equal(bud.hogar.limit,1200);assert.equal(bud.ocio.spent,180);assert.equal(bud.ocio.limit,100);assert.ok(!bud.salud);
+  assert.equal(s.recent[0].title,'Alquiler');assert.ok(s.recent.some(x=>x.project_id===p.id&&x.title==='Escapada · Hotel'));
+  s=(await f.call('/api/finance?period=quarter','GET',undefined,a)).data;assert.equal(s.label,'4.º trimestre 2026');assert.equal(s.budgets.find(x=>x.category==='hogar').limit,3600);assert.equal(s.series.length,4);
+  s=(await f.call('/api/finance?period=year','GET',undefined,a)).data;assert.equal(s.kpis.income,9280);assert.equal(s.series.length,12);
+  // Pagar la factura mensual: se apunta el gasto y pasa al mes siguiente.
+  const luz=f.db.prepare("SELECT id FROM fin_bills WHERE title='Luz'").get().id;assert.equal((await f.call(`/api/finance/bills/${luz}/pay`,'POST',{},b)).status,200);
+  assert.equal(f.db.prepare('SELECT due_date FROM fin_bills WHERE id=?').get(luz).due_date,'2026-11-29');assert.ok(f.db.prepare("SELECT 1 FROM fin_moves WHERE title='Luz' AND amount=64.5").get());
+  const uA=f.db.prepare("SELECT id FROM users WHERE email='a@dupla.test'").get().id;assert.ok(f.db.prepare("SELECT 1 FROM notifications WHERE user_id=? AND action='pagó una factura'").get(uA));
+  // Aviso de factura que vence mañana.
+  f.app.processReminders();assert.ok(f.db.prepare("SELECT detail FROM notifications WHERE action='factura pendiente'").all().length===0);
+  f.db.prepare("UPDATE fin_bills SET due_date='2026-10-29' WHERE title='Seguro coche'").run();f.app.processReminders();
+  assert.match(f.db.prepare("SELECT detail FROM notifications WHERE action='factura pendiente'").get().detail,/Seguro coche · 300 € · vence mañana/);
+  const all=(await f.call('/api/finance/moves','GET',undefined,a)).data.items;assert.ok(all.length>=6);
+  const mid=f.db.prepare("SELECT id FROM fin_moves WHERE title='Supermercado'").get().id;assert.equal((await f.call('/api/finance/moves/'+mid,'PATCH',{amount:95.4},a)).status,200);assert.equal((await f.call('/api/finance/moves/'+mid,'DELETE',undefined,b)).status,200);
+ }finally{t.mock.timers.reset();}
+ assert.equal((await f.call('/api/finance','GET')).status,401);
+});

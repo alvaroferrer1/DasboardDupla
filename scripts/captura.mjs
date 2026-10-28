@@ -66,6 +66,21 @@ async function sembrar() {
   await alvaro('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'avance', content: 'He mirado 3 hoteles cerca del centro, el mejor es el Palafox.' });
   await angie('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'falta', content: '¿Llegamos el viernes o el sábado? Sin eso no puedo reservar.' });
   await alvaro('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'bloqueo', content: 'La web del hotel da error al pagar con tarjeta.' });
+  // Finanzas: 6 meses de ingresos y gastos, límites, objetivos y facturas.
+  const mes = (n, dia) => { const x = new Date(); x.setDate(1); x.setMonth(x.getMonth() - n); return `${x.toISOString().slice(0, 7)}-${String(Math.min(dia, 28)).padStart(2, '0')}`; };
+  for (let n = 5; n >= 0; n--) { const k = 1 + (n % 3) * 0.08;
+    await alvaro('/api/finance/moves', { kind: 'in', amount: Math.round(2600 * k), title: 'Nómina Álvaro', date: mes(n, 1), paid_by: uid('lvaro') });
+    await angie('/api/finance/moves', { kind: 'in', amount: Math.round(1900 / k), title: n === 0 ? 'Reservas Retiro de Otoño' : 'Nómina Angie', date: mes(n, 2), paid_by: uid('Angie') });
+    await alvaro('/api/finance/moves', { kind: 'out', amount: 1100, category: 'hogar', title: 'Alquiler', date: mes(n, 5), paid_by: uid('lvaro') });
+    await angie('/api/finance/moves', { kind: 'out', amount: Math.round(420 * k), category: 'comida', title: 'Supermercado', date: mes(n, 12), paid_by: uid('Angie') });
+    await alvaro('/api/finance/moves', { kind: 'out', amount: Math.round(900 / k), category: n % 2 ? 'ocio' : 'bienestar', title: n % 2 ? 'Cenas y planes' : 'Gimnasio y yoga', date: mes(n, 18) }); }
+  await alvaro('/api/finance/moves', { kind: 'out', amount: 64, category: 'trabajo', title: 'Suscripciones software', date: mes(0, 20), paid_by: uid('lvaro') });
+  await alvaro('/api/finance/budgets', { limits: { hogar: 1200, comida: 600, trabajo: 400, ocio: 500, bienestar: 200 } }, 'PUT');
+  await angie('/api/finance/goals', { title: 'Viaje a Japón', target: 5000, saved: 2400, icon: 'plane', color: '#2f6fd8' });
+  await alvaro('/api/finance/goals', { title: 'Fondo de emergencia', target: 9000, saved: 7800, icon: 'lock', color: '#22a05a' });
+  await angie('/api/finance/goals', { title: 'Material para retiros', target: 1500, saved: 650, icon: 'sun', color: '#d6408a' });
+  await alvaro('/api/finance/bills', { title: 'Luz', amount: 58.4, category: 'hogar', due_date: d(8), repeat: 'monthly' });
+  await angie('/api/finance/bills', { title: 'Seguro del coche', amount: 312, category: 'transporte', due_date: d(-1) });
   await angie('/api/board', { title: 'Pedir cita médico', priority: 'normal', status: 'doing' });
   await angie('/api/board', { title: 'Comprar regalo', priority: 'low', status: 'done' });
   console.log('DATOS de ejemplo creados', [bud.title, ita.title, cena.title, web.title].join(' · '));

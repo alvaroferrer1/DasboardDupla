@@ -6,6 +6,7 @@ import {configured as googleConfigured, randomState, authorizationUrl, encryptTo
 import {configured as designConfigured, spec as designSpec, authUrl as designAuthUrl, tokenRequest as designTokenRequest, remote as designRemote, figmaKey, safeCanvaUrl} from './design-providers.mjs';
 import {config as pushConfigured,isAllowedPushEndpoint,sendPush,validKeys as validPushKeys} from './web-push.mjs';
 import {createV6,SHARED_CALENDAR_ID,AGENT_MODEL} from './v6.mjs';
+import {createFinanzas,FIN_TABLES} from './finanzas.mjs';
 import {verifyRegistration,verifyAssertion,b64u} from './passkeys.mjs';
 export function createApi(storage, env, ctx) {
  const {db,all,get,run,now,uid,touch,activity,hashPassword,verifyPassword,saveFile,readFile,fileExists,removeFile,makeRateMap}=createDB(storage);
@@ -17,6 +18,7 @@ export function createApi(storage, env, ctx) {
  const PUBLIC_ORIGIN=String(env.PUBLIC_ORIGIN||'').replace(/\/$/,'');
  if(SETUP_TOKEN && SETUP_TOKEN.length<32)throw Error('SETUP_TOKEN demasiado corto');
  const v6=createV6({env,all,get,run,now,uid,saveFile,readFile,fileExists,removeFile,respond,fail,readBody,requireText,optional,choice,validDate,money,project,projectList,logChange,notify,logFree:(user,space,action,detail)=>{activity(null,space,user.id,action,detail);notifyPartner(user.id,null,space,action,detail);notify(space,null,user.id);}});
+ const fin=createFinanzas({all,get,run,now,uid,respond,fail,readBody,requireText,choice,validDate,money,logFree:(user,space,action,detail)=>{activity(null,space,user.id,action,detail);notifyPartner(user.id,null,space,action,detail);notify(space,null,user.id);}});
 function respond(res,status,data,extra={}){if(res.writableEnded)return;res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extra});res.end(JSON.stringify(data));}
 function fail(status,message){const error=new Error(message);error.status=status;throw error;}
 function requireText(value,name,max=250){if(typeof value!=='string'||!value.trim()||value.trim().length>max)fail(400,`${name}: obligatorio, máximo ${max} caracteres`);return value.trim();}
@@ -56,7 +58,7 @@ function validDate(value){
 }
 function sha(token){return createHash('sha256').update(token).digest('hex');}
 // DUPLA 6: tablas y archivos extra que deben viajar en la copia completa.
-const V6_TABLES=['agent_memory','shared_settings','user_prefs','connections','calendar_marks','trip_days','couple_items','project_quotes','meetings','meeting_segments','director_states','board_tasks','dest_notes','task_notes'];
+const V6_TABLES=['agent_memory','shared_settings','user_prefs','connections','calendar_marks','trip_days','couple_items','project_quotes','meetings','meeting_segments','director_states','board_tasks','dest_notes','task_notes',...FIN_TABLES];
 function v6Files(data){const out=(data.projects||[]).map(p=>p.cover_file).filter(Boolean);const av=(data.shared_settings||[]).find(r=>r.key==='dupla_avatar');if(av){try{out.push(JSON.parse(av.value));}catch{}}return out.filter(n=>typeof n==='string'&&/^[a-f0-9-]{36}$/.test(n));}
 // Nombre legible del dispositivo para «Sesiones activas» (solo sistema y navegador, nada identificable).
 function deviceName(ua=''){ua=String(ua);const os=/iPhone/.test(ua)?'iPhone':/iPad/.test(ua)?'iPad':/Android/.test(ua)?'Android':/Windows/.test(ua)?'Windows':/Mac OS X|Macintosh/.test(ua)?'Mac':/Linux/.test(ua)?'Linux':'Dispositivo';const br=/Edg\//.test(ua)?'Edge':/OPR\//.test(ua)?'Opera':/Firefox\//.test(ua)?'Firefox':/CriOS|Chrome\//.test(ua)?'Chrome':/Safari\//.test(ua)?'Safari':'Navegador';return `${os} · ${br}`;}
@@ -196,6 +198,9 @@ function processReminders(){
  const trips=all("SELECT id,title,destination,start_date,space FROM projects WHERE deleted_at IS NULL AND archived=0 AND start_date BETWEEN ? AND ? AND (kind IN ('trip','weekend') OR destination!='')",today,last);
  for(const t of trips)for(const recipient of users){if(!leadOk(recipient.id,t.start_date))continue;const row=run('INSERT OR IGNORE INTO reminder_sent(task_id,user_id,notice_date) VALUES(?,?,?)','trip:'+t.id,recipient.id,today);
   if(row.changes){const notificationId=uid();run('INSERT INTO notifications VALUES(?,?,?,?,?,?,?,?,?)',notificationId,recipient.id,t.id,t.space,null,'recordatorio de viaje',`${t.destination||t.title} · ${t.start_date===today?'¡salís hoy!':'salís mañana'}`,now(),null);queueExternalNotice(notificationId,recipient.id,t.space);sent++;}}
+ // Factura pendiente que vence hoy o mañana: aviso a los dos.
+ for(const b of all('SELECT id,title,amount,due_date FROM fin_bills WHERE paid_at IS NULL AND due_date BETWEEN ? AND ?',today,last))for(const recipient of users){if(!leadOk(recipient.id,b.due_date))continue;const row=run('INSERT OR IGNORE INTO reminder_sent(task_id,user_id,notice_date) VALUES(?,?,?)','bill:'+b.id+':'+b.due_date,recipient.id,today);
+  if(row.changes){const notificationId=uid();run('INSERT INTO notifications VALUES(?,?,?,?,?,?,?,?,?)',notificationId,recipient.id,null,'couple',null,'factura pendiente',`${b.title} · ${Number(b.amount).toLocaleString('es-ES')} € · ${b.due_date===today?'vence hoy':'vence mañana'}`,now(),null);queueExternalNotice(notificationId,recipient.id,'couple');sent++;}}
  // Tarea que pasó su fecha límite sin terminar (proyecto o tablero): un aviso a los dos, una sola vez, desde las 9:00 del día siguiente.
  if(madridNow().hour>=9){const from=new Date(Date.parse(today+'T12:00:00Z')-3*864e5).toISOString().slice(0,10);
   const late=[...all("SELECT t.id,t.title,t.due_date,p.id AS project_id,p.space FROM tasks t JOIN projects p ON p.id=t.project_id WHERE t.state!='done' AND t.due_date>=? AND t.due_date<? AND p.deleted_at IS NULL AND p.archived=0",from,today),
@@ -579,6 +584,7 @@ async function api(req,res,url){
   fail(404,'Atajo desconocido');}
  const u=auth(req);
  if(await v6.route(req,res,url,u))return;
+ if(await fin.route(req,res,url,u))return;
  // Design providers are authorized separately for every DUPLA account.
  const dRoute=path.match(/^\/api\/design\/(figma|canva)\/(status|start|disconnect|list|import)$/);
  async function designAccess(provider){
