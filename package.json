@@ -26,6 +26,7 @@
     "captura": "node scripts/captura.mjs",
     "credencial": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/guardar-credencial.ps1",
     "google": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/google-oauth.ps1",
+    "turn": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/turn.ps1",
     "publicar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publicar.ps1",
     "publicar:ensayo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publicar.ps1 -Ensayo",
     "deshacer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deshacer.ps1"

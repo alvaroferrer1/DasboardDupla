@@ -616,3 +616,11 @@ test('Avisos: al activar se guardan las claves de cifrado del dispositivo; Dupla
  try{const f=fixture(ai);const c=await f.login();const r=await f.call('/api/agent','POST',{message:'Viaje a Zaragoza del 10 al 12 de octubre',scope:'all'},c);assert.equal(r.status,200);
   const toolMsg=ai.seen[1].messages.find(m=>m.role==='tool');assert.match(toolMsg.content,/Pilar/,'La herramienta devuelve los avisos reales, no un objeto vacío');}finally{net.restore();}
 });
+
+test('Videollamada: sin TURN usa STUN; con clave TURN de Cloudflare pide credenciales temporales',async()=>{
+ const f=fixture();const c=await f.login();assert.deepEqual((await f.call('/api/rtc/ice','GET',undefined,c)).data.turn,false);
+ const g=fixture(undefined,{TURN_KEY_ID:'k1',TURN_KEY_API_TOKEN:'tok'});const c2=await g.login();let seen;
+ const net=mockFetch(async(u,o)=>{seen={url:u.toString(),auth:o.headers.Authorization,body:o.body};return Response.json({iceServers:[{urls:['turn:turn.cloudflare.com:3478?transport=udp'],username:'u',credential:'p'}]});});
+ try{const r=(await g.call('/api/rtc/ice','GET',undefined,c2)).data;assert.equal(r.turn,true);assert.equal(r.iceServers[0].username,'u');assert.match(seen.url,/keys\/k1\/credentials\/generate-ice-servers$/);assert.equal(seen.auth,'Bearer tok');assert.match(seen.body,/"ttl":86400/);}finally{net.restore();}
+ assert.equal((await g.call('/api/rtc/ice','GET')).status,401);
+});

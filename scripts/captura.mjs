@@ -53,6 +53,9 @@ async function sembrar() {
   // Las portadas se descargan en segundo plano: espera (max. 15 s) a que lleguen para que salgan en la captura.
   const cookie = await login('alvaro@dupla.test', 'Prueba-Alvaro-2026!');
   for (let i = 0; i < 30; i++) { const ps = await Promise.all([bud, ita].map(p => fetch(`${base}/api/projects/${p.id}`, { headers: { cookie } }).then(r => r.json()))); if (ps.every(x => x.project?.cover_file)) break; await new Promise(r => setTimeout(r, 500)); }
+  const hoy = new Date().toLocaleDateString('en-CA');
+  await alvaro(`/api/projects/${web.id}/events`, { title: 'Llamada con cliente', event_date: hoy, event_time: '18:00' });
+  await angie(`/api/projects/${cena.id}/events`, { title: 'Yoga', event_date: hoy, event_time: '18:30' });
   const t1 = (await alvaro('/api/board', { title: 'Reservar hotel en Zaragoza', priority: 'urgent' })).item;
   await alvaro('/api/board', { title: 'Pagar la señal', parent_id: t1.id, priority: 'high' });
   await angie('/api/board', { title: 'Pedir cita médico', priority: 'normal', status: 'doing' });
@@ -75,7 +78,8 @@ try {
       if (!r.ok()) throw new Error('login ' + r.status());
     }
     await page.goto(base + '/', { waitUntil: 'networkidle' });
-    for (const sel of clics) { await page.click(sel, { timeout: 5000 }); await page.waitForTimeout(400); }
+    for (const js of args.flatMap((a, i) => a === "--eval" ? [args[i + 1]] : [])) await page.evaluate(js);
+    for (const sel of clics) { if (sel.startsWith("fill:")) { const k = sel.lastIndexOf("="); await page.fill(sel.slice(5, k), sel.slice(k + 1)); continue; } await page.click(sel, { timeout: 5000 }); await page.waitForTimeout(400); }
     if (teclear) { await page.keyboard.type(teclear); await page.keyboard.press('Enter'); await page.waitForTimeout(800); }
     if (esperar) await page.waitForSelector(esperar, { timeout: 90000 });
     if (descargar) { const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click(descargar)]); const f = fileURLToPath(new URL(`${nombre}-${ancho}-${dl.suggestedFilename().replace(/[^\w.-]+/g, '_')}`, outDir)); await dl.saveAs(f); console.log('DESCARGA', f); }

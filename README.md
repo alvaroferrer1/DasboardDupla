@@ -31,10 +31,6 @@
 - [Dupla, el agente](#dupla-el-agente)
 - [Arquitectura](#arquitectura)
 - [Seguridad y privacidad](#seguridad-y-privacidad)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Desarrollo, pruebas y publicación](#desarrollo-pruebas-y-publicación)
-- [Configuración](#configuración)
-- [Estado y próximos pasos](#estado-y-próximos-pasos)
 
 ---
 
@@ -216,77 +212,6 @@ flowchart LR
 | 🧾 **Todo queda registrado** | Cada cambio aparece en Actividad; el agente nunca guarda sin confirmación. |
 
 Políticas públicas: [privacidad](edge/public/privacidad.html) · [condiciones](edge/public/condiciones.html)
-
----
-
-## Estructura del proyecto
-
-```
-edge/
-  worker.mjs            Entrada del Worker + Durable Object «DosRoom» (no renombrar)
-  api.mjs               API principal: proyectos, tareas, notificaciones, Google, copias…
-  v6.mjs                Módulos v6: agente Dupla, calendario, viajes, reuniones, tablero,
-                        presupuestos, Director, Nuestro espacio, búsqueda semántica
-  db.mjs · schema.mjs   SQLite y migraciones aditivas
-  google-calendar.mjs   OAuth 2.0 + PKCE, rutas permitidas de Calendar, cifrado de tokens
-  web-push.mjs          Web Push con VAPID y cifrado aes128gcm
-  public/               app.js · style.css · index.html · push-sw.js · vendor/jspdf
-tests/                  158 pruebas (node:test) con IA, Google y red simulados
-scripts/                publicar, deshacer, capturas en Chrome real, conexión con Google…
-docs/capturas/          Capturas con datos de ejemplo
-```
-
----
-
-## Desarrollo, pruebas y publicación
-
-```bash
-npm install
-npm run verificar                 # sintaxis + 158 pruebas
-node scripts/captura.mjs --datos  # Chrome real con dos cuentas de prueba (390 / 768 / 1440 px)
-node scripts/captura.mjs --datos --puerto 8790 --servir   # vista previa local navegable
-node scripts/prueba-reunion.mjs   # dos Chrome se llaman por WebRTC y deben verse
-```
-
-**Publicar** (Windows, con la credencial cifrada creada una vez con `npm run credencial`):
-
-```bash
-npm run publicar:ensayo   # todo menos desplegar
-npm run publicar          # pruebas → copia de los datos reales → commit + etiqueta → deploy → verificación en vivo
-npm run deshacer          # vuelve a la versión anterior (los datos no se tocan)
-```
-
-> No se despliega nunca con `wrangler deploy` a mano: `npm run publicar` hace antes la copia de seguridad y después comprueba que el código en vivo es idéntico al local.
-
----
-
-## Configuración
-
-*Secrets* de Cloudflare (los valores nunca van al repositorio):
-
-| Secreto | Para qué |
-|---|---|
-| `SETUP_TOKEN` | Creación inicial de las dos cuentas |
-| `INTEGRATION_ENCRYPTION_KEY` | Cifrado de tokens de Google |
-| `PUSH_VAPID_PRIVATE_JWK` · `PUSH_VAPID_PUBLIC_KEY` · `PUSH_VAPID_SUBJECT` | Avisos push |
-| `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` | OAuth de Google Calendar |
-
-Variables y *bindings* en `wrangler.jsonc`: `PUBLIC_ORIGIN`, `AI` (Workers AI), `DOS_ROOM` (Durable Object) y `ASSETS`.
-
-Scripts de ayuda: `scripts/configurar-secretos.ps1` (VAPID y cifrado), `npm run google` (cliente OAuth) y `scripts/conectar-google.ps1` (conecta y verifica el calendario).
-
----
-
-## Estado y próximos pasos
-
-**Funcionando y comprobado en la web real:** las dos cuentas con edición compartida en tiempo real, calendario compartido de Google (leer, crear, editar, borrar), Google Meet, IA real (agente, voz, avisos de destino), resumen diario, PDFs, tablero, presupuestos y el resto de pantallas sin errores en ordenador y móvil.
-
-**Pendiente de hacer por vosotros:**
-- [ ] Conectar cada uno sus calendarios personales (Calendario → «Fusionar mis calendarios de Google»).
-- [ ] Activar los avisos en cada dispositivo (iPhone instalado en la pantalla de inicio y PC).
-- [ ] Primera reunión real con Meet y transcripción de los dos.
-
-**Ideas por delante:** servidor TURN de Cloudflare para videollamadas en redes muy cerradas y fuentes de eventos (congresos, huelgas) cuando haya alguna gratuita y fiable.
 
 ---
 

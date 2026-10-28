@@ -10,7 +10,7 @@ const PREF_KEYS={home_summary:subset(['trip','date','task','idea']),agent_scope:
  notify_types:subset(NOTIFY_TYPES),reminder_lead:oneOf(['same_day','day_before','both']),
  calendar_view:oneOf(['month','week','agenda']),week_start:oneOf(['monday','sunday']),
  pdf_cover:bool,pdf_expenses:bool,pdf_notes:bool,pdf_activity:bool,
- default_color_work:oneOf(COLORS),default_color_couple:oneOf(COLORS),home_show_work:bool,home_show_couple:bool,daily_summary:bool,daily_calendar:bool,agent_alerts:bool};
+ default_color_work:oneOf(COLORS),default_color_couple:oneOf(COLORS),home_show_work:bool,home_show_couple:bool,daily_summary:bool,daily_calendar:bool,agent_alerts:bool,cal_color:oneOf(['lavanda','rosa','menta','melocoton','celeste','limon'])};
 // Compartido por los dos (no por persona).
 const SHARED_KEYS={couple_since:v=>v===''||/^\d{4}-\d{2}-\d{2}$/.test(v),home_summary:subset(['trip','date','task','idea'])};
 const WEATHER={0:'Despejado',1:'Casi despejado',2:'Parcialmente nuboso',3:'Nublado',45:'Niebla',48:'Niebla',51:'Llovizna',53:'Llovizna',55:'Llovizna',61:'Lluvia débil',63:'Lluvia',65:'Lluvia fuerte',71:'Nieve débil',73:'Nieve',75:'Nieve fuerte',80:'Chubascos',81:'Chubascos',82:'Chubascos fuertes',95:'Tormenta',96:'Tormenta con granizo',99:'Tormenta con granizo'};
@@ -371,6 +371,12 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
    if(to==='executed'&&s?.task&&s.project_id&&!taskId){const p=project(s.project_id),ex=get("SELECT id FROM tasks WHERE project_id=? AND title=? AND state!='done'",p.id,s.task);taskId=ex?.id;if(!taskId){taskId=uid();const t=now();run('INSERT INTO tasks(id,project_id,title,description,state,priority,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',taskId,p.id,s.task,s.detail,'todo',s.severity==='high'?'high':'normal',u.id,t,t);}logChange(p,u,'ejecutó una propuesta del Director',s.task);}
    run('INSERT INTO director_states(id,space,status,task_id,updated_by,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,task_id=excluded.task_id,updated_by=excluded.updated_by,updated_at=excluded.updated_at',dr[2],space,to,taskId,u.id,now());
    respond(res,200,{status:to,task_id:taskId});return true;}
+  // Videollamada: servidores ICE. Con TURN de Cloudflare (credenciales temporales de 24 h) conecta también en redes cerradas.
+  if(path==='/api/rtc/ice'&&req.method==='GET'){const stun={urls:['stun:stun.cloudflare.com:3478','stun:stun.l.google.com:19302']};
+   if(!env.TURN_KEY_ID||!env.TURN_KEY_API_TOKEN){respond(res,200,{iceServers:[stun],turn:false});return true;}
+   try{const r=await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID)}/credentials/generate-ice-servers`,{method:'POST',headers:{Authorization:'Bearer '+env.TURN_KEY_API_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({ttl:86400}),signal:AbortSignal.timeout(8000)});
+    if(!r.ok)throw Error('HTTP '+r.status);const j=await r.json();const list=Array.isArray(j.iceServers)?j.iceServers:j.iceServers?[j.iceServers]:[];
+    respond(res,200,{iceServers:list.length?list:[stun],turn:list.length>0});}catch(ex){console.error('TURN',String(ex.message||ex).slice(0,120));respond(res,200,{iceServers:[stun],turn:false});}return true;}
   // ---- Tablero de tareas (independiente de Trabajo y Nuestro espacio) ----
   if(path==='/api/board'&&req.method==='GET'){respond(res,200,{items:all('SELECT b.*,us.name AS assignee_name,c.name AS author FROM board_tasks b LEFT JOIN users us ON us.id=b.assignee LEFT JOIN users c ON c.id=b.created_by ORDER BY b.sort,b.created_at')});return true;}
   const bt=path.match(/^\/api\/board(?:\/([a-f0-9-]{36}))?$/);
