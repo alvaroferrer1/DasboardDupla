@@ -29,8 +29,6 @@
 - [Qué es DUPLA](#qué-es-dupla)
 - [Lo que hace](#lo-que-hace)
 - [Dupla, el agente](#dupla-el-agente)
-- [Arquitectura](#arquitectura)
-- [Seguridad y privacidad](#seguridad-y-privacidad)
 
 ---
 
@@ -167,53 +165,6 @@ Modelo: `@cf/openai/gpt-oss-120b` en Workers AI, gratuito y sin claves externas.
 
 ---
 
-## Arquitectura
-
-```mermaid
-flowchart LR
-  subgraph Navegador["Navegador / PWA (iPhone · PC)"]
-    UI["app.js · interfaz SPA"]
-    SW["push-sw.js · avisos"]
-    MIC["Micrófono · WebRTC"]
-  end
-  subgraph CF["Cloudflare"]
-    W["Worker · worker.mjs<br/>cabeceras de seguridad, assets"]
-    DO["Durable Object «DosRoom»<br/>SQLite · API · WebSocket · alarma horaria"]
-    AI["Workers AI<br/>gpt-oss · Whisper · bge-m3"]
-  end
-  G["Google Calendar API<br/>OAuth 2.0 + PKCE"]
-  P["Servicios push<br/>Apple · Google · Mozilla"]
-  X["Wikimedia · Open-Meteo · Nager.Date"]
-  UI <-->|HTTPS + cookie de sesión| W --> DO
-  UI <-.->|WebSocket tiempo real| DO
-  DO --> AI
-  DO <-->|tokens cifrados| G
-  DO -->|aes128gcm + VAPID| P --> SW
-  DO --> X
-  MIC <-.->|P2P| MIC
-```
-
-- **Un único Durable Object** guarda todo en SQLite. Las migraciones son aditivas: nunca se borra nada.
-- **Alarma horaria**: recordatorios, Director General, resumen de la mañana, avisos inteligentes, copias de seguridad y cola de push.
-- **Tiempo real**: lo que edita uno aparece al momento en la pantalla del otro.
-
----
-
-## Seguridad y privacidad
-
-| | |
-|---|---|
-| 🔒 **Solo dos cuentas** | Contraseñas con hash, sesiones con cookie `HttpOnly`/`Secure`, sin registro público. |
-| 🧱 **Cabeceras estrictas** | CSP `self`, `frame-ancestors 'none'`, `Permissions-Policy` (cámara y micro solo para DUPLA), HSTS. |
-| 🔑 **Secretos fuera del código** | Claves de Google, VAPID y cifrado como *secrets* de Cloudflare; copia local cifrada con DPAPI. |
-| 🗝️ **Tokens cifrados** | Tokens de Google con AES-GCM en el servidor; nunca llegan al navegador. |
-| 📅 **Permisos mínimos** | Solo Google Calendar (eventos y lista de calendarios). Nada de correo, contactos ni Drive. |
-| 📣 **Push cifrado** | Contenido cifrado de extremo a extremo: Apple y Google solo ven bytes opacos. |
-| 🧾 **Todo queda registrado** | Cada cambio aparece en Actividad; el agente nunca guarda sin confirmación. |
-
-Políticas públicas: [privacidad](edge/public/privacidad.html) · [condiciones](edge/public/condiciones.html)
-
----
 
 <div align="center">
 
