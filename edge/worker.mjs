@@ -19,15 +19,17 @@ export class DosRoom extends DurableObject {
    ['reminders',()=>this.app.processReminders()],
    ['guardian',()=>this.app.processGuardianReview()],
    ['resumen',()=>this.app.processDailyBrief()],
+   ['repaso',()=>this.app.processWeeklyReview()],
    ['avisos-dupla',()=>this.app.processAgentAlerts()],
    // Automation rules and third-party webhooks stay paused until the owners explicitly enable them.
    ...(this.env.DUPLA_AUTOMATIONS_ENABLED==='true'?[['automations',()=>this.app.processAutomationRules()]]:[]),
    ['backup',()=>this.app.processScheduledBackup()],
+   ['drive',()=>this.app.processDriveBackup()],
    ['email',()=>this.app.flushExternalNotices()],
    ['push',()=>this.app.flushPushNotices()],
    ...(this.env.DUPLA_AUTOMATIONS_ENABLED==='true'?[['webhooks',()=>this.app.flushWebhookQueue()]]:[])
   ];
-  try{for(const [name,job] of jobs){try{await job();}catch(e){console.error('DUPLA scheduled '+name+':',String(e?.message||e).slice(0,160));}}}
+  try{for(const [name,job] of jobs){try{await job();}catch(e){console.error('DUPLA scheduled '+name+':',String(e?.message||e).slice(0,160));try{this.app.alertFailure(name,e);}catch{}}}}
   finally{await this.ctx.storage.setAlarm(Date.now()+60*60*1000);}
  }
  async fetch(request){

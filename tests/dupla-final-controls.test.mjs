@@ -39,7 +39,7 @@ function fixture(extraEnv={}){
 }
 
 test('DUPLA 5.1: enlace compartido de forma segura, sin claves ni acciones decorativas',async()=>{
- const app=await readFile(new URL('../edge/public/app.js',import.meta.url),'utf8');
+ const app=(await Promise.all(['app.js','m/pdf.js','m/ajustes.js','m/conexiones.js'].map(x=>readFile(new URL('../edge/public/'+x,import.meta.url),'utf8')))).join('\n');
  assert.match(app,/data-action="share-access"/);
  assert.match(app,/case 'share-access'/);
  assert.match(app,/navigator\.clipboard\.writeText\(text\)/);

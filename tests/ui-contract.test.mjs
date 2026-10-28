@@ -5,7 +5,7 @@ import path from 'node:path';
 const root=path.resolve(import.meta.dirname,'..');
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
 test('DUPLA UI: cada data-action tiene un caso real y no queda como botón decorativo',()=>{
- const source=read('edge/public/app.js');
+ const source=['app.js','m/pdf.js','m/ajustes.js','m/conexiones.js'].map(x=>read('edge/public/'+x)).join('\n');
  const actions=[...source.matchAll(/data-action="([a-z-]+)"/g)].map(x=>x[1]);
  const handlers=new Set([...source.matchAll(/case '([a-z-]+)'/g)].map(x=>x[1]));
  assert(actions.length>50);

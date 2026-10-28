@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { schema } from '../edge/schema.mjs';
 const api=readFileSync(new URL('../edge/api.mjs',import.meta.url),'utf8');
-const ui=readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8');
+const ui=[readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8'),...['pdf','ajustes','conexiones'].map(m=>readFileSync(new URL('../edge/public/m/'+m+'.js',import.meta.url),'utf8'))].join('\n');
 const route="if(path==='/api/action-center'&&req.method==='GET')";
 test('action center: el endpoint se ejecuta después de auth(req)',()=>{
  assert.ok(api.indexOf(route)>api.indexOf('const u=auth(req);'));

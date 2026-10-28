@@ -14,3 +14,15 @@ self.addEventListener('notificationclick',event=>{
   await clients.openWindow(path);
  })());
 });
+// Sin cobertura: red primero; si no hay red, la última copia guardada en este dispositivo (se borra al cerrar sesión).
+const CACHE='dupla-offline-v1';
+self.addEventListener('install',()=>self.skipWaiting());
+self.addEventListener('activate',event=>event.waitUntil(self.clients.claim()));
+self.addEventListener('fetch',event=>{
+ const r=event.request,u=new URL(r.url);if(r.method!=='GET'||u.origin!==self.location.origin)return;
+ const api=u.pathname.startsWith('/api/');if(api&&(u.pathname.startsWith('/api/atajo/')||u.pathname==='/api/ws'||u.pathname.startsWith('/api/google/oauth')||(r.headers.get('accept')||'').includes('text/event-stream')))return;
+ event.respondWith((async()=>{
+  try{const res=await fetch(r);const type=res.headers.get('content-type')||'';if(res.ok&&res.type==='basic'&&(api?type.includes('application/json'):true)){const c=await caches.open(CACHE);c.put(r,res.clone()).catch(()=>{});}return res;}
+  catch(ex){const hit=await caches.match(r,{ignoreVary:true})||(r.mode==='navigate'?await caches.match('/'):null);if(!hit)throw ex;if(!api)return hit;const h=new Headers(hit.headers);h.set('x-dupla-cache','1');return new Response(await hit.blob(),{status:200,headers:h});}
+ })());
+});

@@ -46,6 +46,11 @@ async function sembrar() {
   await angie(`/api/projects/${bud.id}/tasks`, { title: 'Revisar itinerario día 2', due_date: d(30) });
   for (const [t, k, h, b] of [['Galería Uffizi', 10, '10:00', 'booked'], ['Cena en Oltrarno', 10, '21:00', 'pending'], ['Subir al Piazzale Michelangelo', 11, '19:30', 'not_needed']]) await angie(`/api/projects/${ita.id}/operations/itinerary`, { title: t, visit_date: d(k), visit_time: h, booking_state: b, location: 'Florencia' });
   await angie(`/api/projects/${bud.id}/events`, { title: 'Paseo en barco por el Danubio', event_date: d(53), event_time: '20:30', location: 'Budapest' });
+  const us = (await alvaro('/api/dashboard', undefined, 'GET')).users || [], uid = n => us.find(x => new RegExp(n, 'i').test(x.name))?.id;
+  for (const [t, c, a, w] of [['Vuelos Ryanair', 'flights', 186, 'lvaro'], ['Apartamento centro', 'stay', 340, 'Angie'], ['Cena en Gerbeaud', 'food', 74.5, 'Angie']]) await alvaro(`/api/projects/${bud.id}/expenses`, { title: t, category: c, estimated: a, actual: a, paid_by: uid(w) });
+  for (const [t, dd, b] of [['Primera cena en Gerbeaud', d(-365), 'Nos prometimos volver'], ['Concierto en el Pilar', d(-30), ''], ['Domingo de picnic', d(-370), 'El día que vimos la casa']]) await angie('/api/couple-items', { kind: 'memory', title: t, item_date: dd, body: b });
+  await alvaro('/api/projects', { space: 'couple', title: 'Escapada a Oporto', template: 'trip', destination: 'Oporto', start_date: d(-120), end_date: d(-117), status: 'done' });
+  await alvaro('/api/weekly-review/run', {});
   await angie(`/api/projects/${cena.id}/events`, { title: 'Cena especial', event_date: d(25), event_time: '21:00', location: 'Restaurante del puerto' });
   await alvaro(`/api/projects/${web.id}/events`, { title: 'Entrega del prototipo', event_date: d(18) });
   await angie('/api/ideas', { space: 'couple', title: 'Spa en Budapest', body: 'Baños Széchenyi al atardecer' });
@@ -78,6 +83,8 @@ try {
       if (!r.ok()) throw new Error('login ' + r.status());
     }
     await page.goto(base + '/', { waitUntil: 'networkidle' });
+    // --sin-red: la página ya cargada con el service worker; se corta la red y se recarga (modo sin cobertura).
+    if (args.includes('--sin-red')) { await page.evaluate(() => navigator.serviceWorker.ready); await page.reload({ waitUntil: 'networkidle' }); await ctx.setOffline(true); await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForTimeout(2500); }
     for (const js of args.flatMap((a, i) => a === "--eval" ? [args[i + 1]] : [])) await page.evaluate(js);
     for (const sel of clics) { if (sel.startsWith("fill:")) { const k = sel.lastIndexOf("="); await page.fill(sel.slice(5, k), sel.slice(k + 1)); continue; } await page.click(sel, { timeout: 5000 }); await page.waitForTimeout(400); }
     if (teclear) { await page.keyboard.type(teclear); await page.keyboard.press('Enter'); await page.waitForTimeout(800); }

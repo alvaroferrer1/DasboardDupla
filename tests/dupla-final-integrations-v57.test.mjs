@@ -37,7 +37,7 @@ test('Canva: refresh retains grant_type and uses published token endpoint',async
 });
 
 test('Director General UI offers review, approve, discard and explicitly execute without automations',()=>{
- const client=source('edge/public/app.js');
+ const client=['app.js','m/pdf.js','m/ajustes.js','m/conexiones.js'].map(x=>source('edge/public/'+x)).join('\n');
  for(const action of ['guardian-review','guardian-approve','guardian-reject','guardian-execute']){
   assert(client.includes(`data-action="${action}"`)||client.includes(`case '${action}'`),`Missing ${action}`);
  }
@@ -48,7 +48,7 @@ test('Director General UI offers review, approve, discard and explicitly execute
 });
 
 test('Mobile notifications guide and safe Worker body limit',()=>{
- const client=source('edge/public/app.js');
+ const client=['app.js','m/pdf.js','m/ajustes.js','m/conexiones.js'].map(x=>source('edge/public/'+x)).join('\n');
  assert.match(client,/Safari, pulsa Compartir/);
  assert.match(client,/subscription\.options\.applicationServerKey/);
  const edge=source('edge/worker.mjs');

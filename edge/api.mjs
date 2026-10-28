@@ -5,7 +5,8 @@ import { validateWebhookUrl, extractTasksFromAI } from './integrations.mjs';
 import {configured as googleConfigured, randomState, authorizationUrl, encryptToken, decryptToken, tokenRequest, googleRequest, toGoogleEvent, validSharedCalendarId, validSharedEventId, normalizedSharedEvent} from './google-calendar.mjs';
 import {configured as designConfigured, spec as designSpec, authUrl as designAuthUrl, tokenRequest as designTokenRequest, remote as designRemote, figmaKey, safeCanvaUrl} from './design-providers.mjs';
 import {config as pushConfigured,isAllowedPushEndpoint,sendPush,validKeys as validPushKeys} from './web-push.mjs';
-import {createV6,SHARED_CALENDAR_ID} from './v6.mjs';
+import {createV6,SHARED_CALENDAR_ID,AGENT_MODEL} from './v6.mjs';
+import {verifyRegistration,verifyAssertion,b64u} from './passkeys.mjs';
 export function createApi(storage, env, ctx) {
  const {db,all,get,run,now,uid,touch,activity,hashPassword,verifyPassword,saveFile,readFile,fileExists,removeFile,makeRateMap}=createDB(storage);
  const SECURE=true;
@@ -352,6 +353,50 @@ function processAutomationRules(){
  return {executed,failed};
 }
 // Optional independent off-site backup. R2 is disabled unless the user binds a private bucket.
+// Copia semanal en Google Drive (permiso drive.file: DUPLA solo ve los archivos que crea). Cifrada con la clave del servidor
+// y comprobada tras subirla: se descarga, se descifra y se cuentan las filas (prueba de restauración).
+const DRIVE='https://www.googleapis.com';
+async function driveToken(row){const t=await decryptToken(env,row.encrypted_token);if(row.expires_at>Date.now()+60000)return t.access_token;if(!t.refresh_token)throw Error('Hay que volver a conectar Google Drive');
+ const r=await tokenRequest(env,{grant_type:'refresh_token',refresh_token:t.refresh_token});run("UPDATE drive_backup SET encrypted_token=?,expires_at=? WHERE id='main'",await encryptToken(env,{access_token:r.access_token,refresh_token:r.refresh_token||t.refresh_token,scope:r.scope||t.scope}),Date.now()+Number(r.expires_in||3600)*1000);return r.access_token;}
+async function driveFetch(tok,path,opts={}){const r=await fetch(DRIVE+path,{...opts,headers:{Authorization:'Bearer '+tok,...(opts.headers||{})},signal:AbortSignal.timeout(60000)});if(!r.ok){const t=await r.text().catch(()=>'');const ex=Error(`Google Drive ${r.status}: ${t.slice(0,160)}`);ex.statusCode=r.status;throw ex;}return r;}
+function backupSnapshot(){const skip=new Set(['sessions','webauthn_challenges','upload_chunks','place_cache','google_oauth_states','google_connections','google_personal','drive_backup','api_tokens','sqlite_sequence','_cf_KV','_cf_METADATA']);
+ const tables=all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").map(x=>x.name).filter(t=>!skip.has(t)&&/^[a-z_0-9]+$/.test(t)),data=Object.fromEntries(tables.map(t=>[t,all(`SELECT * FROM ${t}`)]));
+ const files={},total=(data.assets||[]).reduce((n,a)=>n+Number(a.size||0),0),withFiles=total<=15*1024*1024;if(withFiles)for(const a of data.assets||[])try{files[a.stored_name]=Buffer.from(readFile(a.stored_name)).toString('base64');}catch{}
+ return {format:'dupla-backup-1',created_at:now(),counts:Object.fromEntries(tables.map(t=>[t,data[t].length])),files_included:withFiles,data,files};}
+async function processDriveBackup(force=false){const row=get("SELECT * FROM drive_backup WHERE id='main'");if(!row)return {enabled:false};
+ if(!force&&row.last_at&&Date.now()-Date.parse(row.last_at)<7*864e5-3600e3)return {enabled:true,created:false};
+ try{const tok=await driveToken(row);let folder=row.folder_id;
+  if(folder){const f=await driveFetch(tok,`/drive/v3/files/${encodeURIComponent(folder)}?fields=id,trashed`).then(r=>r.json()).catch(()=>null);if(!f||f.trashed)folder=null;}
+  if(!folder){folder=(await driveFetch(tok,'/drive/v3/files?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'DUPLA · Copias de seguridad',mimeType:'application/vnd.google-apps.folder',description:'Copias cifradas semanales de DUPLA (Álvaro y Angie).'})}).then(r=>r.json())).id;run("UPDATE drive_backup SET folder_id=? WHERE id='main'",folder);}
+  const snap=backupSnapshot(),sealed=await encryptToken(env,snap),name=`dupla-copia-${now().slice(0,10)}.dupla`,bnd='dupla'+uid().replace(/-/g,''),meta=JSON.stringify({name,parents:[folder],mimeType:'application/octet-stream',description:'Copia cifrada de DUPLA. Solo se puede restaurar con la clave del servidor (INTEGRATION_ENCRYPTION_KEY).'});
+  const up=await driveFetch(tok,'/upload/drive/v3/files?uploadType=multipart&fields=id,size',{method:'POST',headers:{'Content-Type':'multipart/related; boundary='+bnd},body:`--${bnd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${bnd}\r\nContent-Type: application/octet-stream\r\n\r\n${sealed}\r\n--${bnd}--`}).then(r=>r.json());
+  // Prueba de restauración: lo subido se baja, se descifra y debe tener las mismas filas.
+  const back=await decryptToken(env,await driveFetch(tok,`/drive/v3/files/${encodeURIComponent(up.id)}?alt=media`).then(r=>r.text()));const bad=Object.entries(snap.counts).filter(([t,n])=>back.data?.[t]?.length!==n).map(([t])=>t);if(bad.length)throw Error('La copia subida no coincide al restaurarla: '+bad.join(', '));
+  const rows=Object.values(snap.counts).reduce((a,b)=>a+b,0),check=`Restauración comprobada: ${Object.keys(snap.counts).length} tablas, ${rows} filas${snap.files_included?`, ${Object.keys(snap.files).length} archivos`:' (archivos grandes fuera de la copia)'}.`;
+  const old=(await driveFetch(tok,`/drive/v3/files?q=${encodeURIComponent(`'${folder}' in parents and trashed=false`)}&orderBy=createdTime desc&fields=files(id)&pageSize=50`).then(r=>r.json())).files||[];for(const f of old.slice(8))await driveFetch(tok,`/drive/v3/files/${encodeURIComponent(f.id)}`,{method:'DELETE'}).catch(()=>{});
+  run("UPDATE drive_backup SET last_at=?,last_file=?,last_check=?,last_error=NULL WHERE id='main'",now(),name,check);return {enabled:true,created:true,file:name,check};}
+ catch(ex){run("UPDATE drive_backup SET last_error=? WHERE id='main'",String(ex.message||ex).slice(0,300));throw ex;}}
+// Repaso del domingo: lo hecho en la semana, lo que viene y lo pendiente entre los dos. Se avisa a ambos (domingo desde las 19 h).
+async function buildWeeklyReview(today){const d=n=>new Date(Date.parse(today+'T12:00:00Z')+n*864e5).toISOString().slice(0,10),from=d(-6),to=d(7),nm=Object.fromEntries(all('SELECT id,name FROM users').map(x=>[x.id,x.name.split(' ')[0]]));
+ const done=[...all("SELECT title,done_at AS at,assignee FROM board_tasks WHERE status='done' AND substr(done_at,1,10) BETWEEN ? AND ?",from,today).map(x=>({title:x.title,who:nm[x.assignee]||'Los dos'})),
+  ...all("SELECT t.title,p.title AS pt,t.assigned_to FROM tasks t JOIN projects p ON p.id=t.project_id WHERE p.deleted_at IS NULL AND t.state='done' AND substr(t.updated_at,1,10) BETWEEN ? AND ?",from,today).map(x=>({title:x.title,where:x.pt,who:nm[x.assigned_to]||'Los dos'}))].slice(0,20);
+ const next=[...all("SELECT e.title,e.event_date AS date,e.event_time AS time,p.title AS pt FROM events e JOIN projects p ON p.id=e.project_id WHERE p.deleted_at IS NULL AND e.event_date BETWEEN ? AND ?",d(1),to),
+  ...all("SELECT s.title,s.visit_date AS date,s.visit_time AS time,p.title AS pt FROM trip_stops s JOIN projects p ON p.id=s.project_id WHERE p.deleted_at IS NULL AND s.visit_date BETWEEN ? AND ?",d(1),to),
+  ...all("SELECT title,start_date AS date,'' AS time,destination AS pt FROM projects WHERE deleted_at IS NULL AND space='couple' AND start_date BETWEEN ? AND ?",d(1),to).map(x=>({...x,title:'Empieza: '+x.title})),
+  ...all("SELECT title,due_date AS date,'' AS time,'Tablero' AS pt FROM board_tasks WHERE status!='done' AND due_date BETWEEN ? AND ?",d(1),to)].sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)).slice(0,20);
+ const pending=[...all("SELECT title,due_date,assignee,status FROM board_tasks WHERE status IN ('todo','doing','blocked') AND (due_date IS NULL OR due_date<=?) ORDER BY (due_date IS NULL),due_date LIMIT 12",today).map(x=>({title:x.title,who:nm[x.assignee]||'Los dos',late:!!x.due_date&&x.due_date<today,blocked:x.status==='blocked'}))];
+ const spentRows=all("SELECT e.actual,e.paid_by FROM expenses e JOIN projects p ON p.id=e.project_id WHERE p.deleted_at IS NULL AND p.space='couple' AND coalesce(e.booked_at,substr(e.created_at,1,10)) BETWEEN ? AND ?",from,today),spent=Math.round(spentRows.reduce((n,x)=>n+Number(x.actual||0),0)*100)/100;
+ const ideas=get("SELECT count(*) AS n FROM ideas WHERE state='inbox' AND substr(created_at,1,10) BETWEEN ? AND ?",from,today).n;
+ let text=`Esta semana ${done.length?`habéis cerrado ${done.length} ${done.length===1?'cosa':'cosas'}`:'no habéis cerrado tareas todavía'}${spent?` y gastado ${spent.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})} € en planes juntos`:''}. ${next.length?`Lo próximo: ${next.slice(0,3).map(x=>x.title).join(', ')}.`:'La semana que viene la tenéis libre.'}${pending.some(x=>x.late)?' Hay cosas atrasadas: mirad el tablero.':''}`;
+ if(env.AI)try{const r=await env.AI.run(env.AI_MODEL||AGENT_MODEL,{messages:[{role:'system',content:'Eres Dupla, la asistente de una pareja (Álvaro y Angie). Escribe en español un repaso semanal cálido y breve (3-4 frases, sin listas, sin emojis excesivos), con datos concretos de lo que te paso: celebra lo hecho, anticipa lo que viene y menciona con tacto lo pendiente. No inventes nada.'},{role:'user',content:JSON.stringify({hecho:done.map(x=>x.title),proximo:next.map(x=>`${x.title} (${x.date})`),pendiente:pending.map(x=>x.title+(x.late?' (atrasado)':'')),gastado_eur:spent,ideas_nuevas:ideas})}],max_tokens:900,temperature:0.5});const t=String(r?.choices?.[0]?.message?.content??r?.response??'').trim();if(t.length>40)text=t.slice(0,900);}catch{}
+ return {created_at:now(),from,to:today,done,next,pending,spent,ideas,text};}
+async function processWeeklyReview(force=false){const m=madridNow(),dow=new Date(m.date+'T12:00:00Z').getUTCDay();if(!force&&(dow!==0||m.hour<19||getShared('weekly_review_date')===m.date))return {sent:0};setShared('weekly_review_date',m.date);
+ const rv=await buildWeeklyReview(m.date);setShared('weekly_review',JSON.stringify(rv));let sent=0;for(const x of all('SELECT id FROM users')){noticeTo(x.id,'🗓️ Vuestro repaso de la semana',rv.text.slice(0,200));sent++;}notify('couple',null,null);return {sent,review:rv};}
+// Si algo programado falla, aviso push a Álvaro (como mucho uno cada 6 h por tipo de fallo).
+function alertFailure(job,error){const k='fail_'+job,last=Number(getShared(k)||0);if(Date.now()-last<6*3600e3)return false;setShared(k,String(Date.now()));
+ const admin=all('SELECT id,name FROM users ORDER BY created_at').find(x=>/lvaro/i.test(x.name))||get('SELECT id FROM users ORDER BY created_at LIMIT 1');if(!admin)return false;
+ const what={backup:'la copia en R2',drive:'la copia semanal en Google Drive',resumen:'el resumen de la mañana','avisos-dupla':'los avisos de Dupla',reminders:'los recordatorios',push:'el envío de avisos',email:'el envío de correos',guardian:'el Director General'}[job]||job;
+ noticeTo(admin.id,'⚠️ Algo ha fallado en DUPLA',`Ha fallado ${what}: ${String(error?.message||error).slice(0,150)}`);return true;}
 async function processScheduledBackup(){
  if(!env.BACKUP_BUCKET)return {enabled:false};
  if(typeof storage.get!=='function'||typeof storage.put!=='function')throw Error('Almacenamiento de control no disponible');
@@ -455,6 +500,8 @@ async function api(req,res,url){
   let result;try{result=await tokenRequest(env,{grant_type:'authorization_code',code,redirect_uri:env.PUBLIC_ORIGIN.replace(/\/$/,'')+'/api/google/callback',code_verifier:pending.verifier});}
   catch(e){fail(502,'No se pudo completar la autorización con Google: '+e.message);}
   const sealed=await encryptToken(env,{access_token:result.access_token,refresh_token:result.refresh_token||'',scope:result.scope||''});
+  if(pending.kind==='drive'){run("INSERT INTO drive_backup(id,user_id,encrypted_token,expires_at,connected_at) VALUES('main',?,?,?,?) ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,encrypted_token=excluded.encrypted_token,expires_at=excluded.expires_at,connected_at=excluded.connected_at,last_error=NULL",pending.user_id,sealed,Date.now()+Number(result.expires_in||3600)*1000,now());
+   if(!result.refresh_token)run("UPDATE drive_backup SET last_error='Google no dio permiso permanente: desconecta y vuelve a conectar.' WHERE id='main'");res.writeHead(302,{'Location':'/?drive=1','Cache-Control':'no-store'});res.end('');return;}
   if(pending.kind==='personal'){let list=[];try{list=(await googleRequest(result.access_token,'GET','/users/me/calendarList?minAccessRole=reader&maxResults=100')).items||[];}catch(e){fail(502,'Google no devolvió vuestros calendarios: '+e.message);}
    const email=String(list.find(x=>x.primary)?.id||'').slice(0,200),cals=list.filter(x=>x.id!==SHARED_CALENDAR_ID).slice(0,40).map(x=>({id:String(x.id).slice(0,250),name:String(x.summaryOverride||x.summary||x.id).slice(0,120),primary:!!x.primary,include:!/holiday|festivos|contacts|birthday|cumplea/i.test(x.id+' '+(x.summary||''))}));
    run('INSERT INTO google_personal(user_id,encrypted_token,expires_at,email,calendars,connected_at) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET encrypted_token=excluded.encrypted_token,expires_at=excluded.expires_at,email=excluded.email,calendars=excluded.calendars,connected_at=excluded.connected_at',pending.user_id,sealed,Date.now()+Number(result.expires_in||3600)*1000,email,JSON.stringify(cals),now());
@@ -488,7 +535,42 @@ async function api(req,res,url){
   loginAttempts.delete(key);const token=randomBytes(32).toString('hex');run('INSERT INTO sessions(token_hash,user_id,expires_at,device,created_at) VALUES(?,?,?,?,?)',sha(token),u.id,new Date(Date.now()+30*864e5).toISOString(),deviceName(req.headers['user-agent']),now());
   respond(res,200,{user:{id:u.id,name:u.name,email:u.email}},{'Set-Cookie':cookie(token,30*86400)});return;
  }
+ // Passkeys: Face ID / huella / Windows Hello en vez de contraseña (la contraseña sigue valiendo).
+ if(path.startsWith('/api/passkeys')){const host=String(req.headers.host||'').toLowerCase(),rpId=host.split(':')[0],origins=[PUBLIC_ORIGIN,'https://'+host,...(env.DEV_MODE==='true'?['http://'+host]:[])].filter(Boolean);
+  const newChallenge=(userId,kind)=>{run('DELETE FROM webauthn_challenges WHERE expires_at<?',Date.now());const c=b64u(randomBytes(32));run('INSERT INTO webauthn_challenges(challenge,user_id,kind,expires_at) VALUES(?,?,?,?)',c,userId,kind,Date.now()+5*60*1000);return c;};
+  const takeChallenge=(raw,kind)=>{let c;try{c=JSON.parse(Buffer.from(String(raw||''),'base64url').toString()).challenge;}catch{fail(400,'Respuesta de passkey no válida');}const row=get('SELECT * FROM webauthn_challenges WHERE challenge=? AND kind=?',String(c||''),kind);run('DELETE FROM webauthn_challenges WHERE challenge=?',String(c||''));if(!row||row.expires_at<Date.now())fail(400,'La petición ha caducado: inténtalo de nuevo.');return row;};
+  if(path==='/api/passkeys/login/options'&&req.method==='POST'){respond(res,200,{challenge:newChallenge(null,'login'),rpId,userVerification:'required',timeout:60000});return;}
+  if(path==='/api/passkeys/login'&&req.method==='POST'){const b=await readBody(req),key=(req.socket.remoteAddress||'')+':passkey',at=loginAttempts.get(key)||{n:0,since:Date.now()};if(Date.now()-at.since>15*60*1000){at.n=0;at.since=Date.now();}if(at.n>=10)fail(429,'Demasiados intentos. Prueba en 15 minutos.');
+   const ch=takeChallenge(b.response?.clientDataJSON,'login'),pk=get('SELECT * FROM passkeys WHERE id=?',String(b.id||''));if(!pk){at.n++;loginAttempts.set(key,at);fail(401,'Esta passkey no está registrada en DUPLA.');}
+   let v;try{v=await verifyAssertion(b.response||{},{challenge:ch.challenge,origins,rpId,alg:pk.alg,jwk:JSON.parse(pk.jwk),signCount:pk.sign_count});}catch(ex){at.n++;loginAttempts.set(key,at);fail(401,ex.message);}
+   loginAttempts.delete(key);run('UPDATE passkeys SET sign_count=?,last_used_at=? WHERE id=?',v.signCount,now(),pk.id);const u=get('SELECT * FROM users WHERE id=?',pk.user_id),token=randomBytes(32).toString('hex');
+   run('INSERT INTO sessions(token_hash,user_id,expires_at,device,created_at) VALUES(?,?,?,?,?)',sha(token),u.id,new Date(Date.now()+30*864e5).toISOString(),deviceName(req.headers['user-agent']),now());
+   respond(res,200,{user:{id:u.id,name:u.name,email:u.email}},{'Set-Cookie':cookie(token,30*86400)});return;}
+  const pu=auth(req);
+  if(path==='/api/passkeys'&&req.method==='GET'){respond(res,200,{items:all('SELECT id,label,created_at,last_used_at FROM passkeys WHERE user_id=? ORDER BY created_at DESC',pu.id)});return;}
+  if(path==='/api/passkeys/register/options'&&req.method==='POST'){respond(res,200,{challenge:newChallenge(pu.id,'register'),rp:{name:'DUPLA',id:rpId},user:{id:b64u(Buffer.from(pu.id)),name:pu.email,displayName:pu.name},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],authenticatorSelection:{residentKey:'required',userVerification:'required'},attestation:'none',timeout:60000,excludeCredentials:all('SELECT id FROM passkeys WHERE user_id=?',pu.id).map(x=>({type:'public-key',id:x.id}))});return;}
+  if(path==='/api/passkeys/register'&&req.method==='POST'){const b=await readBody(req),ch=takeChallenge(b.response?.clientDataJSON,'register');if(ch.user_id!==pu.id)fail(403,'Esta petición era de otra cuenta');if(all('SELECT id FROM passkeys WHERE user_id=?',pu.id).length>=10)fail(409,'Máximo 10 passkeys por persona.');
+   let v;try{v=await verifyRegistration(b.response||{},{challenge:ch.challenge,origins,rpId});}catch(ex){fail(400,ex.message);}if(get('SELECT id FROM passkeys WHERE id=?',v.credId))fail(409,'Esta passkey ya estaba guardada.');
+   run('INSERT INTO passkeys(id,user_id,alg,jwk,sign_count,label,created_at) VALUES(?,?,?,?,?,?,?)',v.credId,pu.id,v.alg,JSON.stringify(v.jwk),v.signCount,String(b.label||deviceName(req.headers['user-agent'])).slice(0,60),now());activity(null,'couple',pu.id,'activó una passkey',deviceName(req.headers['user-agent']));respond(res,201,{ok:true});return;}
+  const dm=path.match(/^\/api\/passkeys\/([A-Za-z0-9_-]{16,400})$/);if(dm&&req.method==='DELETE'){if(!run('DELETE FROM passkeys WHERE id=? AND user_id=?',dm[1],pu.id).changes)fail(404,'Passkey no encontrada');respond(res,200,{ok:true});return;}
+  fail(404,'Ruta de passkeys desconocida');}
  if(path==='/api/me'&&req.method==='GET'){const u=userFromReq(req);respond(res,200,{user:u?{id:u.id,name:u.name,email:u.email}:null,configured:get('SELECT COUNT(*) AS n FROM users').n===2,setupAvailable:Boolean(SETUP_TOKEN)&&get('SELECT COUNT(*) AS n FROM users').n===0});return;}
+ // Atajos del iPhone (Siri / widget): sin cookie, con clave personal revocable creada en Ajustes.
+ if(path.startsWith('/api/atajo/')){const m=/^Bearer (dpl_[a-f0-9]{48})$/.exec(String(req.headers.authorization||'').trim()),tk=m&&get('SELECT t.id,us.id AS uid,us.name FROM api_tokens t JOIN users us ON us.id=t.user_id WHERE t.token_hash=?',sha(m[1]));
+  if(!tk)fail(401,'Clave del atajo no válida: crea una nueva en DUPLA › Ajustes › Atajos del iPhone.');run('UPDATE api_tokens SET last_used_at=? WHERE id=?',now(),tk.id);const who={id:tk.uid,name:tk.name},md=madridNow();
+  if(path==='/api/atajo/hoy'&&req.method==='GET'){const b=await buildDailyBrief(md.date);respond(res,200,{texto:b.full,corto:b.short,fecha:md.date});return;}
+  if(path==='/api/atajo/apuntar'&&req.method==='POST'){if(!env.AI)fail(503,'Apuntar por voz necesita la IA del servidor.');const b=await readBody(req),text=requireText(b.texto??b.text,'Texto',500),wd=new Date(md.date+'T12:00:00Z').toLocaleDateString('es-ES',{weekday:'long',timeZone:'UTC'});
+   let r;try{r=await env.AI.run(env.AI_MODEL||AGENT_MODEL,{messages:[{role:'system',content:`Hoy es ${wd} ${md.date} (Madrid). ${who.name} dicta algo para DUPLA, la app de pareja de Álvaro y Angie. Devuelve SOLO JSON: {"tipo":"evento|tarea|idea|memoria","titulo":"corto","fecha":"AAAA-MM-DD o vacío","hora":"HH:MM o vacío","hora_fin":"HH:MM o vacío","lugar":"","notas":""}. evento = algo con día (cita, cena, viaje, médico); tarea = algo por hacer; idea = propuesta o deseo; memoria = un dato para que Dupla recuerde (gustos, alergias, tallas). Convierte «el viernes», «mañana», «a las 9 de la noche» en fecha y hora reales (24 h).`},{role:'user',content:text}],max_tokens:900,temperature:0});}catch(ex){fail(502,'La IA no ha respondido: '+String(ex.message||ex).slice(0,120));}
+   const raw=String(r?.choices?.[0]?.message?.content??r?.response??'');let j;try{j=JSON.parse(raw.slice(raw.indexOf('{'),raw.lastIndexOf('}')+1));}catch{fail(422,'No he entendido qué apuntar. Prueba: «cena con Marta el viernes a las 9».');}
+   const title=String(j.titulo||text).trim().slice(0,160),date=/^\d{4}-\d{2}-\d{2}$/.test(j.fecha||'')?j.fecha:'',time=/^\d{2}:\d{2}$/.test(j.hora||'')?j.hora:'',end=/^\d{2}:\d{2}$/.test(j.hora_fin||'')?j.hora_fin:'',t=now();let tipo=['evento','tarea','idea','memoria'].includes(j.tipo)?j.tipo:'tarea',say;
+   if(tipo==='evento'&&date&&sharedRecord()){const {record,token}=await sharedAccess();let body;try{body=normalizedSharedEvent({title,date,time,end_time:end,location:String(j.lugar||'').slice(0,220),notes:('Apuntado con Siri por '+who.name.split(' ')[0]+(j.notas?'. '+j.notas:'')).slice(0,2000)});}catch(ex){fail(400,ex.message);}
+    try{await googleRequest(token,'POST','/calendars/'+encodeURIComponent(record.calendar_id)+'/events',body);}catch(ex){fail(502,'Google no guardó el evento: '+ex.message);}logIntegration('google','success','shared.event.create','Evento compartido (Siri)');
+    say=`Apuntado en vuestro calendario: ${title}, ${new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'})}${time?' a las '+time:''}.`;}
+   else if(tipo==='idea'){run('INSERT INTO ideas(id,space,title,body,state,project_id,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',uid(),'couple',title,String(j.notas||'').slice(0,2000),'inbox',null,who.id,t,t);say=`Idea guardada: ${title}.`;}
+   else if(tipo==='memoria'){run('INSERT INTO agent_memory(id,fact,created_by,created_at) VALUES(?,?,?,?)',uid(),(String(j.notas||'')||title).slice(0,300),who.id,t);say='Dupla lo recordará.';}
+   else{tipo='tarea';run('INSERT INTO board_tasks(id,title,notes,status,assignee,priority,parent_id,due_date,sort,created_by,created_at,updated_at,done_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',uid(),title,String(j.notas||'Apuntado con Siri').slice(0,2000),'todo',null,'normal',null,date||null,Date.now(),who.id,t,t,null);say=`Tarea apuntada para los dos: ${title}${date?' para el '+new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'long',timeZone:'UTC'}):''}.`;}
+   notifyPartner(who.id,null,'couple','apuntó con Siri',title);notify('couple',null,who.id);respond(res,201,{ok:true,tipo,respuesta:say});return;}
+  fail(404,'Atajo desconocido');}
  const u=auth(req);
  if(await v6.route(req,res,url,u))return;
  // Design providers are authorized separately for every DUPLA account.
@@ -580,7 +662,7 @@ async function api(req,res,url){
   if(!googleConfigured(env))fail(503,'Faltan GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, INTEGRATION_ENCRYPTION_KEY o PUBLIC_ORIGIN en Cloudflare');
   const state=randomState(),verifier=randomState();
   run('DELETE FROM google_oauth_states WHERE expires_at<?',Date.now());
-  const sb=await readBody(req).catch(()=>({})),kind=sb?.kind==='personal'?'personal':'shared';
+  const sb=await readBody(req).catch(()=>({})),kind=['personal','drive'].includes(sb?.kind)?sb.kind:'shared';
   run('INSERT INTO google_oauth_states(state,user_id,verifier,expires_at,kind) VALUES(?,?,?,?,?)',state,u.id,verifier,Date.now()+10*60*1000,kind);
   respond(res,200,{url:authorizationUrl(env,state,verifier,kind)});return;
  }
@@ -914,6 +996,11 @@ async function api(req,res,url){
   let integrity='unavailable';try{const result=get('PRAGMA integrity_check');integrity=result?.integrity_check==='ok'?'ok':'attention';}catch{integrity='not_supported';}
   const probe=get('SELECT 1 AS ok');respond(res,200,{database_integrity:integrity,database_probe:probe?.ok===1?'ok':'attention',projects:get('SELECT COUNT(*) AS n FROM projects WHERE deleted_at IS NULL').n,deliverables:get('SELECT COUNT(*) AS n FROM work_deliverables').n,itinerary:get('SELECT COUNT(*) AS n FROM trip_stops').n,automations:get('SELECT COUNT(*) AS n FROM automation_rules').n,updated_at:now()});return;
  }
+ if(path==='/api/weekly-review'&&req.method==='GET'){let rv=null;try{rv=JSON.parse(getShared('weekly_review')||'null');}catch{}respond(res,200,{review:rv});return;}
+ if(path==='/api/weekly-review/run'&&req.method==='POST'){const r=await processWeeklyReview(true);respond(res,200,{review:r.review});return;}
+ if(path==='/api/backups/drive'&&req.method==='GET'){const r=get("SELECT d.folder_id,d.last_at,d.last_file,d.last_check,d.last_error,d.connected_at,us.name FROM drive_backup d JOIN users us ON us.id=d.user_id WHERE d.id='main'");respond(res,200,{configured:googleConfigured(env),connected:!!r,...(r||{})});return;}
+ if(path==='/api/backups/drive/run'&&req.method==='POST'){if(!get("SELECT id FROM drive_backup WHERE id='main'"))fail(409,'Conecta primero Google Drive');let r;try{r=await processDriveBackup(true);}catch(ex){fail(502,ex.message);}respond(res,200,{ok:true,...r});return;}
+ if(path==='/api/backups/drive'&&req.method==='DELETE'){run("DELETE FROM drive_backup WHERE id='main'");activity(null,'couple',u.id,'desconectó la copia en Google Drive','');respond(res,200,{ok:true});return;}
  if(path==='/api/backups/status'&&req.method==='GET'){
   const enabled=Boolean(env.BACKUP_BUCKET);const last=enabled&&typeof storage.get==='function'?await storage.get('dupla-backup-success'):null;
   respond(res,200,{enabled,last:last||null});return;
@@ -1342,7 +1429,8 @@ async function api(req,res,url){
    logChange(p,u,'añadió un hito',b.title);respond(res,201,{item:get('SELECT * FROM milestones WHERE id=?',id)});return;
   }
   if(kind==='expenses'){
-   run('INSERT INTO expenses(id,project_id,title,category,estimated,actual,booked_at,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,p.id,requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],'general'),money(b.estimated),money(b.actual),validDate(b.booked_at),u.id,t,t);
+   const payer=b.paid_by?get('SELECT id FROM users WHERE id=?',String(b.paid_by))?.id||fail(400,'Persona no válida'):null;
+   run('INSERT INTO expenses(id,project_id,title,category,estimated,actual,booked_at,paid_by,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',id,p.id,requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],'general'),money(b.estimated),money(b.actual),validDate(b.booked_at),payer,u.id,t,t);
    logChange(p,u,'añadió un gasto',b.title);respond(res,201,{item:get('SELECT * FROM expenses WHERE id=?',id)});return;
   }
   if(kind==='tasks'){
@@ -1416,7 +1504,7 @@ async function api(req,res,url){
    logChange(p,u,'editó un hito',b.title||row.title);respond(res,200,{ok:true});return;
   }
   if(req.method==='PATCH'&&kind==='expenses'){
-   const b=await readBody(req);requireRevision(b,row);const changed=run('UPDATE expenses SET booked_at=?,title=?,category=?,estimated=?,actual=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?',b.booked_at===undefined?row.booked_at:validDate(b.booked_at),b.title===undefined?row.title:requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],row.category),b.estimated===undefined?row.estimated:money(b.estimated),b.actual===undefined?row.actual:money(b.actual),now(),row.id,row.revision);if(!changed.changes)fail(409,'Gasto modificado por otra persona');
+   const b=await readBody(req);requireRevision(b,row);const payer=b.paid_by===undefined?row.paid_by:b.paid_by?get('SELECT id FROM users WHERE id=?',String(b.paid_by))?.id||fail(400,'Persona no válida'):null;const changed=run('UPDATE expenses SET paid_by=?,booked_at=?,title=?,category=?,estimated=?,actual=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?',payer,b.booked_at===undefined?row.booked_at:validDate(b.booked_at),b.title===undefined?row.title:requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],row.category),b.estimated===undefined?row.estimated:money(b.estimated),b.actual===undefined?row.actual:money(b.actual),now(),row.id,row.revision);if(!changed.changes)fail(409,'Gasto modificado por otra persona');
    logChange(p,u,'editó un gasto',b.title||row.title);respond(res,200,{ok:true});return;
   }
   if(req.method==='PATCH'&&kind==='tasks'){
@@ -1480,5 +1568,5 @@ async function api(req,res,url){
  fail(404,'Ruta no encontrada');
 }
 
-return {api,userFromReq,isSessionActive,processReminders,processDailyBrief,processAgentAlerts,processGuardianReview,processAutomationRules,processScheduledBackup,flushExternalNotices,flushPushNotices,flushWebhookQueue};
+return {api,userFromReq,isSessionActive,processReminders,processDailyBrief,processAgentAlerts,processGuardianReview,processAutomationRules,processScheduledBackup,processDriveBackup,processWeeklyReview,alertFailure,flushExternalNotices,flushPushNotices,flushWebhookQueue};
 }

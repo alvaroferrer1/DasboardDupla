@@ -10,7 +10,7 @@ function fixture(ai,extraEnv={}){
  const storage={sql:{exec(sql,...b){if(!b.length&&/;\s*\S/.test(sql.trim().replace(/;\s*$/,''))){db.exec(sql);return {toArray:()=>[],rowsWritten:0};}const st=db.prepare(sql),reader=/^\s*(SELECT|PRAGMA|WITH|EXPLAIN)\b/i.test(sql);const rows=reader?st.all(...b):[];return {toArray:()=>rows,rowsWritten:reader?0:st.run(...b).changes};}},transactionSync(fn){db.exec('BEGIN');try{const x=fn();db.exec('COMMIT');return x;}catch(e){db.exec('ROLLBACK');throw e;}}};
  const jobs=[];const app=createApi(storage,{SETUP_TOKEN:'A'.repeat(64),AI:ai,...extraEnv},{getWebSockets:()=>[],waitUntil(p){jobs.push(p);}});
  async function call(path,method='GET',body,cookie){
-  const headers=new Headers({origin:'https://dupla.test',host:'dupla.test'});if(cookie)headers.set('cookie',cookie);if(body!==undefined)headers.set('content-type','application/json');
+  const headers=new Headers({origin:'https://dupla.test',host:'dupla.test'});if(cookie)headers.set(cookie.startsWith('Bearer ')?'authorization':'cookie',cookie);if(body!==undefined)headers.set('content-type','application/json');
   const request=new Request('https://dupla.test'+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)});
   let consumed=false,resolve,code=200;const h=new Headers(),promise=new Promise(r=>resolve=r);
   const req={method,headers:Object.fromEntries(headers),socket:{remoteAddress:'127.0.0.1'},async *[Symbol.asyncIterator](){if(consumed)return;consumed=true;const bytes=await request.arrayBuffer();if(bytes.byteLength)yield Buffer.from(bytes);}};
@@ -30,7 +30,7 @@ function fixture(ai,extraEnv={}){
   assert.equal((await call('/api/initialize','POST',{setup_token:'A'.repeat(64),email_a:'a@dupla.test',email_b:'b@dupla.test',password_a:'clave-super-a-1234',password_b:'clave-super-b-2345'})).status,201);
   return loginAs('a@dupla.test','clave-super-a-1234');
  }
- return {call,login,loginAs,db,jobs};
+ return {call,login,loginAs,db,jobs,app};
 }
 function mockFetch(handler){const calls=[];const original=globalThis.fetch;globalThis.fetch=async(url,opts)=>{calls.push(String(url));return handler(new URL(String(url)),opts);};return {calls,restore(){globalThis.fetch=original;}};}
 const commonsPage=(n,w,h,mime='image/jpeg',host='upload.wikimedia.org')=>({index:n,imageinfo:[{mime,width:w,height:h,thumburl:`https://${host}/wikipedia/commons/thumb/a/a${n}/Budapest_${n}.jpg/1600px-Budapest_${n}.jpg`,descriptionurl:'https://commons.wikimedia.org/wiki/File:B'+n,extmetadata:{Artist:{value:'<a href="x">Fotógrafa '+n+'</a>'},LicenseShortName:{value:'CC BY-SA 4.0'}}}]});
@@ -608,7 +608,7 @@ test('Destinos: vuestros avisos por mes, eventos recurrentes según la IA y avis
 });
 
 test('Avisos: al activar se guardan las claves de cifrado del dispositivo; Dupla consulta los avisos del destino',async()=>{
- const {readFileSync}=await import('node:fs');const app=readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8');
+ const {readFileSync}=await import('node:fs');const app=[readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8'),...['pdf','ajustes','conexiones'].map(m=>readFileSync(new URL('../edge/public/m/'+m+'.js',import.meta.url),'utf8'))].join('\n');
  assert.match(app,/api\('\/api\/push\/subscribe','POST',\{endpoint:subscription\.endpoint,keys:sj\.keys\}\)/,'El navegador manda p256dh y auth');
  assert.match(app,/case 'meet-guide':/);
  const ai=scriptedAI([{calls:[['avisos_destino',{destino:'Zaragoza',fecha_inicio:'2027-10-10',fecha_fin:'2027-10-12'}]]},{text:'Ojo con el Pilar.'}]);
@@ -623,4 +623,131 @@ test('Videollamada: sin TURN usa STUN; con clave TURN de Cloudflare pide credenc
  const net=mockFetch(async(u,o)=>{seen={url:u.toString(),auth:o.headers.Authorization,body:o.body};return Response.json({iceServers:[{urls:['turn:turn.cloudflare.com:3478?transport=udp'],username:'u',credential:'p'}]});});
  try{const r=(await g.call('/api/rtc/ice','GET',undefined,c2)).data;assert.equal(r.turn,true);assert.equal(r.iceServers[0].username,'u');assert.match(seen.url,/keys\/k1\/credentials\/generate-ice-servers$/);assert.equal(seen.auth,'Bearer tok');assert.match(seen.body,/"ttl":86400/);}finally{net.restore();}
  assert.equal((await g.call('/api/rtc/ice','GET')).status,401);
+});
+
+test('Ticket con foto: la IA de visión rellena el gasto; saldo de pareja a medias',async()=>{
+ const ai={async run(model,inp){assert.match(model,/llama-4-scout/);assert.equal(inp.messages[1].content[1].type,'image_url');return {response:'Aquí está: {"merchant":"Mercadona","total":"1.234,50 €","date":"2026-10-20","category":"food"}'};}};
+ const f=fixture(ai);const c=await f.login();
+ const img='data:image/jpeg;base64,'+JPEG.toString('base64');
+ const s=await f.call('/api/receipt/scan','POST',{image:img},c);assert.equal(s.status,200);assert.deepEqual(s.data,{title:'Mercadona',actual:1234.5,booked_at:'2026-10-20',category:'food'});
+ assert.equal((await f.call('/api/receipt/scan','POST',{image:'data:text/html;base64,AAAA'},c)).status,400);
+ const users=f.db.prepare('SELECT id,name FROM users ORDER BY name').all(),[a,b]=users;
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Escapada',template:'weekend'},c)).data.project;
+ for(const [t,amt,who] of [['Hotel',300,a.id],['Cena',100,b.id],['Gasolina',40,'']])assert.equal((await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:t,category:'other',estimated:amt,actual:amt,paid_by:who},c)).status,201);
+ assert.equal((await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'X',estimated:1,actual:1,paid_by:'nadie'},c)).status,400);
+ const bal=(await f.call('/api/balance','GET',undefined,c)).data;assert.equal(bal.total,400);assert.deepEqual(bal.owes,{from:b.id,to:a.id,amount:100});assert.equal(bal.projects[0].title,'Escapada');
+ const ex=f.db.prepare("SELECT id,revision FROM expenses WHERE title='Cena'").get();
+ assert.equal((await f.call('/api/expenses/'+ex.id,'PATCH',{actual:300,revision:ex.revision},c)).status,200);
+ assert.equal((await f.call('/api/balance','GET',undefined,c)).data.owes,null,'300 y 300: en paz');
+});
+
+test('Reserva en PDF → elementos del viaje; lista de maleta como tarea; tiempo solo cerca de la fecha',async()=>{
+ const ai={async toMarkdown(files){assert.equal(files[0].blob.type,'application/pdf');return [{data:'Ryanair FR1234 Madrid-Budapest 10/12/2026 07:05 Localizador ABC123 Total 186,00 EUR'}];},
+  async run(model,inp){const sys=inp.messages[0].content;if(/reservas de viaje/.test(sys))return {response:'{"items":[{"kind":"flight","title":"Vuelo Madrid → Budapest FR1234","date":"2026-12-10","time":"07:05","location":"Madrid-Barajas","amount":186,"reference":"ABC123"},{"kind":"stay","title":"Sin fecha"}]}'};
+   if(/maleta/.test(sys))return {response:'{"items":["Pasaporte","Abrigo","Pasaporte","Cargador"]}'};throw Error('x');}};
+ const f=fixture(ai);const c=await f.login();
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Viaje a Budapest',template:'trip',destination:'Budapest',start_date:'2026-12-10',end_date:'2026-12-14'},c)).data.project;
+ const pdf='data:application/pdf;base64,'+Buffer.alloc(400,9).toString('base64');
+ const r=await f.call(`/api/projects/${p.id}/booking-read`,'POST',{file:pdf,name:'vuelo.pdf'},c);assert.equal(r.status,200);
+ assert.deepEqual(r.data.items,[{kind:'flight',title:'Vuelo Madrid → Budapest FR1234',date:'2026-12-10',time:'07:05',end_date:'',end_time:'',location:'Madrid-Barajas',amount:186,reference:'ABC123'}],'lo que no tiene fecha se descarta');
+ assert.equal((await f.call(`/api/projects/${p.id}/booking-read`,'POST',{file:'data:text/plain;base64,AAAA'},c)).status,400);
+ const k=await f.call(`/api/projects/${p.id}/packing`,'POST',{},c);assert.equal(k.data.added,3);
+ assert.equal((await f.call(`/api/projects/${p.id}/packing`,'POST',{},c)).data.added,0,'no duplica');
+ assert.equal(f.db.prepare('SELECT count(*) n FROM checklist_items WHERE task_id=?').get(k.data.task_id).n,3);
+ const w=await f.call(`/api/projects/${p.id}/forecast`,'GET',undefined,c);assert.equal(w.data.days.length,0);assert.match(w.data.reason,/15 días antes/);
+ const work=(await f.call('/api/projects','POST',{space:'work',title:'Web'},c)).data.project;assert.equal((await f.call(`/api/projects/${work.id}/packing`,'POST',{},c)).status,403);
+});
+
+test('Dupla consulta vuestra historia: gastos con quién pagó, reuniones y reservas, por significado',async()=>{
+ const sc=scriptedAI([{calls:[['consultar_historia',{pregunta:'¿Cuánto gastamos en Florencia?'}]]},{text:'En Florencia gastasteis 420 €.'}]);
+ const vecOf=t=>{const v=new Array(8).fill(0.01);for(const w of String(t).toLowerCase().split(/\W+/u))if(w.includes('florencia'))v[0]+=1;else if(w)v[(w.charCodeAt(0)%7)+1]+=0.05;return v;};
+ const ai={seen:sc.seen,async run(model,input){if(model.includes('bge-m3'))return {data:input.text.map(vecOf)};return sc.run(model,input);}};
+ const f=fixture(ai);const c=await f.login();const [a]=f.db.prepare('SELECT id,name FROM users ORDER BY name').all();
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Escapada a Florencia',template:'trip',destination:'Florencia',start_date:'2025-05-01',end_date:'2025-05-04'},c)).data.project;
+ await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'Hotel Florencia',category:'stay',estimated:300,actual:320,paid_by:a.id},c);
+ await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'Cenas',category:'food',estimated:100,actual:100},c);
+ const r=await f.call('/api/agent','POST',{message:'¿Cuánto gastamos en Florencia?',scope:'all'},c);assert.equal(r.status,200);
+ const tool=sc.seen[1].messages.find(m=>m.role==='tool');assert.ok(tool,'la IA recibe el resultado');const res=JSON.parse(tool.content);
+ assert.ok(res.resultados.some(x=>x.tipo==='gasto'&&x.titulo==='Hotel Florencia'&&x.detalle.includes('pagó '+a.name.split(' ')[0])));
+ assert.equal(res.gasto_real_por_proyecto_en_resultados['Escapada a Florencia'],'420 €');
+ assert.ok(sc.seen[0].tools.includes('consultar_historia'));
+});
+
+test('Atajos del iPhone: clave personal revocable; «hoy» y «apunta» por Siri sin cookie',async()=>{
+ const ai={async run(model,inp){const t=inp.messages[1].content;if(/flores/.test(t))return {response:'{"tipo":"tarea","titulo":"Comprar flores","fecha":"2026-11-02"}'};if(/marisco/.test(t))return {response:'{"tipo":"memoria","titulo":"Alergia","notas":"Angie es alérgica al marisco"}'};return {response:'{"tipo":"idea","titulo":"Ir a Oporto"}'};}};
+ const f=fixture(ai);const c=await f.login();
+ const k=await f.call('/api/shortcut-tokens','POST',{label:'iPhone de Álvaro'},c);assert.equal(k.status,201);assert.match(k.data.token,/^dpl_[a-f0-9]{48}$/);
+ assert.equal(f.db.prepare('SELECT count(*) n FROM api_tokens WHERE token_hash=?').get(k.data.token).n,0,'la clave no se guarda en claro');
+ const B='Bearer '+k.data.token;
+ assert.equal((await f.call('/api/atajo/hoy','GET',undefined,'Bearer dpl_'+'0'.repeat(48))).status,401);
+ const h=await f.call('/api/atajo/hoy','GET',undefined,B);assert.equal(h.status,200);assert.equal(typeof h.data.texto,'string');
+ const a=await f.call('/api/atajo/apuntar','POST',{texto:'apunta comprar flores el lunes'},B);assert.equal(a.status,201);assert.equal(a.data.tipo,'tarea');assert.match(a.data.respuesta,/Comprar flores/);
+ assert.equal(f.db.prepare("SELECT due_date FROM board_tasks WHERE title='Comprar flores'").get().due_date,'2026-11-02');
+ assert.equal((await f.call('/api/atajo/apuntar','POST',{texto:'recuerda que Angie es alérgica al marisco'},B)).data.respuesta,'Dupla lo recordará.');
+ assert.equal((await f.call('/api/atajo/apuntar','POST',{texto:'nos apetece Oporto'},B)).data.tipo,'idea');
+ assert.equal((await f.call('/api/shortcut-tokens','GET',undefined,c)).data.items[0].label,'iPhone de Álvaro');
+ assert.equal((await f.call('/api/shortcut-tokens/'+k.data.id,'DELETE',undefined,c)).status,200);
+ assert.equal((await f.call('/api/atajo/hoy','GET',undefined,B)).status,401,'revocada deja de funcionar');
+});
+
+test('Passkeys: registrar Face ID/huella y entrar sin contraseña; firma falsa o desafío repetido no entran',async()=>{
+ const f=fixture();const c=await f.login();const b64=x=>Buffer.from(x).toString('base64url'),sha=async x=>new Uint8Array(await crypto.subtle.digest('SHA-256',x));
+ const ce=v=>{const h=(mt,n)=>n<24?[mt<<5|n]:n<256?[mt<<5|24,n]:[mt<<5|25,n>>8,n&255];if(typeof v==='number')return v>=0?h(0,v):h(1,-1-v);if(typeof v==='string'){const b=[...Buffer.from(v)];return [...h(3,b.length),...b];}if(v instanceof Uint8Array)return [...h(2,v.length),...v];if(v instanceof Map){let o=h(5,v.size);for(const [k,x] of v)o=[...o,...ce(k),...ce(x)];return o;}throw Error('cbor');};
+ const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']),jwk=await crypto.subtle.exportKey('jwk',kp.publicKey),cred=crypto.getRandomValues(new Uint8Array(16));
+ const rpHash=await sha(new TextEncoder().encode('dupla.test')),cd=(type,challenge)=>b64(JSON.stringify({type,challenge,origin:'https://dupla.test'}));
+ const o=(await f.call('/api/passkeys/register/options','POST',{},c)).data;assert.equal(o.rp.id,'dupla.test');
+ const cose=new Map([[1,2],[3,-7],[-1,1],[-2,new Uint8Array(Buffer.from(jwk.x,'base64url'))],[-3,new Uint8Array(Buffer.from(jwk.y,'base64url'))]]);
+ const authData=new Uint8Array([...rpHash,0x45,0,0,0,0,...new Uint8Array(16),0,16,...cred,...ce(cose)]);
+ const att=new Uint8Array(ce(new Map([['fmt','none'],['attStmt',new Map()],['authData',authData]])));
+ const reg=await f.call('/api/passkeys/register','POST',{id:b64(cred),response:{clientDataJSON:cd('webauthn.create',o.challenge),attestationObject:b64(att)},label:'iPhone'},c);assert.equal(reg.status,201,JSON.stringify(reg.data));
+ const der=raw=>{const p=x=>{let v=[...x];while(v.length>1&&v[0]===0&&!(v[1]&0x80))v.shift();if(v[0]&0x80)v=[0,...v];return [2,v.length,...v];},r=p(raw.slice(0,32)),s=p(raw.slice(32));return new Uint8Array([0x30,r.length+s.length,...r,...s]);};
+ const assertion=async(count,tamper)=>{const lo=(await f.call('/api/passkeys/login/options','POST',{})).data,ad=new Uint8Array([...rpHash,0x05,0,0,0,count]),cdj=cd('webauthn.get',lo.challenge);
+  const sig=new Uint8Array(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},kp.privateKey,new Uint8Array([...ad,...await sha(Buffer.from(cdj,'base64url'))])));if(tamper)sig[5]^=1;
+  return {id:b64(cred),response:{clientDataJSON:cdj,authenticatorData:b64(ad),signature:b64(der(sig))}};};
+ const good=await assertion(1);const ok=await f.call('/api/passkeys/login','POST',good);assert.equal(ok.status,200);assert.equal(ok.data.user.email,'a@dupla.test');
+ assert.equal((await f.call('/api/passkeys/login','POST',good)).status,400,'el mismo desafío no sirve dos veces');
+ assert.equal((await f.call('/api/passkeys/login','POST',await assertion(2,true))).status,401,'firma alterada');
+ assert.equal((await f.call('/api/passkeys/login','POST',await assertion(1))).status,401,'contador que no avanza = clon');
+ const list=(await f.call('/api/passkeys','GET',undefined,c)).data.items;assert.equal(list[0].label,'iPhone');
+ assert.equal((await f.call('/api/passkeys/'+list[0].id,'DELETE',undefined,c)).status,200);
+ assert.equal((await f.call('/api/passkeys/login','POST',await assertion(3))).status,401,'borrada ya no entra');
+});
+
+test('Copia semanal en Google Drive: cifrada, restaurada y comprobada; guarda 8; si falla, aviso a Álvaro',async()=>{
+ const {encryptToken}=await import('../edge/google-calendar.mjs');const KEY='test-secret-key-with-32-characters-000';
+ const f=fixture(undefined,{INTEGRATION_ENCRYPTION_KEY:KEY,GOOGLE_CLIENT_ID:'id',GOOGLE_CLIENT_SECRET:'s',PUBLIC_ORIGIN:'https://dupla.test'});const c=await f.login();
+ await f.call('/api/ideas','POST',{space:'couple',title:'Ir a Oporto'},c);
+ const [a]=f.db.prepare('SELECT id FROM users ORDER BY created_at').all();
+ f.db.prepare("INSERT INTO drive_backup(id,user_id,encrypted_token,expires_at,connected_at) VALUES('main',?,?,?,?)").run(a.id,await encryptToken({INTEGRATION_ENCRYPTION_KEY:KEY},{access_token:'AT',refresh_token:'RT'}),Date.now()+3600e3,new Date().toISOString());
+ const files=new Map(Array.from({length:9},(_,i)=>['old'+i,'x']));let deleted=0,corrupt=false;
+ const m=mockFetch(async(u,o)=>{assert.equal(o.headers.Authorization,'Bearer AT');
+  if(u.pathname==='/drive/v3/files'&&o.method==='POST')return Response.json({id:'FOLDER'});
+  if(u.pathname==='/upload/drive/v3/files'){const body=String(o.body),sealed=body.split('\r\n\r\n')[2].split('\r\n--')[0];assert.match(body,/"parents":\["FOLDER"\]/);assert.ok(!body.includes('Ir a Oporto'),'el contenido va cifrado');files.set('NEW',sealed);return Response.json({id:'NEW'});}
+  if(u.pathname==='/drive/v3/files/NEW'&&u.searchParams.get('alt')==='media')return new Response(corrupt?files.get('NEW').replace(/^./,'A'):files.get('NEW'));
+  if(u.pathname==='/drive/v3/files'&&u.searchParams.get('q'))return Response.json({files:[{id:'NEW'},...[...files.keys()].filter(k=>k!=='NEW').map(id=>({id}))]});
+  if(o.method==='DELETE'){deleted++;return new Response(null,{status:204});}
+  return new Response('?',{status:404});});
+ try{const r=await f.call('/api/backups/drive/run','POST',{},c);assert.equal(r.status,200,JSON.stringify(r.data));assert.match(r.data.check,/Restauración comprobada/);assert.equal(deleted,2,'quedan las 8 más recientes');
+  const st=(await f.call('/api/backups/drive','GET',undefined,c)).data;assert.equal(st.connected,true);assert.match(st.last_file,/^dupla-copia-/);assert.equal(st.folder_id,'FOLDER');
+  assert.equal((await f.call('/api/backups/drive/run','POST',{},c)).status,200);
+  corrupt=true;assert.equal((await f.call('/api/backups/drive/run','POST',{},c)).status,502,'si no se puede restaurar, falla');
+  assert.ok((await f.call('/api/backups/drive','GET',undefined,c)).data.last_error);
+ }finally{m.restore();}
+ const before=f.db.prepare('SELECT count(*) n FROM notifications').get().n;
+ assert.equal(f.app.alertFailure('drive',Error('token caducado')),true);assert.equal(f.app.alertFailure('drive',Error('otra vez')),false,'como mucho uno cada 6 h');
+ const n=f.db.prepare("SELECT * FROM notifications WHERE action LIKE '%ha fallado%'").get();assert.equal(f.db.prepare('SELECT count(*) n FROM notifications').get().n,before+1);assert.match(n.detail,/copia semanal en Google Drive: token caducado/);
+});
+
+test('Repaso del domingo: hecho, lo que viene, pendiente y gastado; avisa a los dos',async()=>{
+ const f=fixture();const c=await f.login();const t=new Date().toISOString().slice(0,10),d=n=>new Date(Date.now()+n*864e5).toISOString().slice(0,10);
+ const id=(await f.call('/api/board','POST',{title:'Reservar restaurante',status:'done'},c)).data;assert.ok(id);
+ await f.call('/api/board','POST',{title:'Llamar al fontanero',due_date:d(-2)},c);
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Cena aniversario',template:'dinner'},c)).data.project;
+ await f.call(`/api/projects/${p.id}/events`,'POST',{title:'Cena en Casa Lucio',event_date:d(3),event_time:'21:00'},c);
+ await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'Señal',estimated:50,actual:50,booked_at:t},c);
+ const before=f.db.prepare('SELECT count(*) n FROM notifications').get().n;
+ const r=(await f.call('/api/weekly-review/run','POST',{},c)).data.review;
+ assert.ok(r.done.some(x=>x.title==='Reservar restaurante'));assert.ok(r.next.some(x=>x.title==='Cena en Casa Lucio'));assert.ok(r.pending.some(x=>x.title==='Llamar al fontanero'&&x.late));assert.equal(r.spent,50);assert.match(r.text,/1 cosa/);
+ assert.equal(f.db.prepare('SELECT count(*) n FROM notifications').get().n,before+2,'aviso a los dos');
+ assert.equal((await f.call('/api/weekly-review','GET',undefined,c)).data.review.created_at,r.created_at);
 });

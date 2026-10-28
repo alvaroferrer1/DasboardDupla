@@ -15,7 +15,7 @@ test('Tareas IA estrictamente estructuradas, sin contaminar proyectos',()=>{
  assert.deepEqual(extractTasksFromAI('{"tasks":[]}'),[]);
 });
 test('Cliente WebSocket y servidor hablan el mismo endpoint',()=>{
- const client=readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8');
+ const client=[readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8'),...['pdf','ajustes','conexiones'].map(m=>readFileSync(new URL('../edge/public/m/'+m+'.js',import.meta.url),'utf8'))].join('\n');
  const server=readFileSync(new URL('../edge/worker.mjs',import.meta.url),'utf8');
  assert.match(client,/new WebSocket\(/);
  assert.match(client,/\/api\/ws/);
@@ -23,7 +23,7 @@ test('Cliente WebSocket y servidor hablan el mismo endpoint',()=>{
  assert.match(server,/url\.pathname==='\/api\/ws'/);
 });
 test('La pantalla ofrece acciones funcionales y no exposición de claves',()=>{
- const frontend=readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8');
+ const frontend=[readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8'),...['pdf','ajustes','conexiones'].map(m=>readFileSync(new URL('../edge/public/m/'+m+'.js',import.meta.url),'utf8'))].join('\n');
  const backend=readFileSync(new URL('../edge/api.mjs',import.meta.url),'utf8');
  assert.match(frontend,/connections-import-form/);
  assert.match(frontend,/test-integration/);

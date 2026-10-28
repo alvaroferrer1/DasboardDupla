@@ -17,7 +17,7 @@ const server=createServer(async(req,res)=>{
  try{
   const url=new URL(req.url,'http://localhost');
   if(url.pathname.startsWith('/api/')){if(url.pathname==='/api/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok'}));return;}if(url.pathname==='/api/ws'){res.writeHead(426);res.end('WebSocket test not supported in Node harness');return;}await app.api(req,res,url);return;}
-  if(!['/','/index.html','/style.css','/app.js','/favicon.svg','/dupla-icon.svg','/dupla-horizontal.svg','/push-sw.js','/manifest.webmanifest','/dupla-icon-192.png','/dupla-icon-512.png','/vendor/jspdf.umd.min.js','/dupla-avatar.jpg','/dupla-agente.jpg'].includes(url.pathname)){res.writeHead(404);res.end();return;}
+  if(!['/','/index.html','/style.css','/app.js','/favicon.svg','/dupla-icon.svg','/dupla-horizontal.svg','/push-sw.js','/m/pdf.js','/m/ajustes.js','/m/conexiones.js','/manifest.webmanifest','/dupla-icon-192.png','/dupla-icon-512.png','/vendor/jspdf.umd.min.js','/dupla-avatar.jpg','/dupla-agente.jpg'].includes(url.pathname)){res.writeHead(404);res.end();return;}
   const fname=url.pathname==='/'?'index.html':url.pathname.slice(1);
   const bytes=await readFile(new URL(fname,publicDir));res.writeHead(200,{'content-type':types[extname(fname)]||'application/octet-stream','cache-control':'no-store'});res.end(bytes);
  }catch(ex){console.error('Harness failure:',ex);if(!res.headersSent)res.writeHead(ex.status||500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:ex.message}));}

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-const app=readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8');
+const app=[readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8'),...['pdf','ajustes','conexiones'].map(m=>readFileSync(new URL('../edge/public/m/'+m+'.js',import.meta.url),'utf8'))].join('\n');
 const css=readFileSync(new URL('../edge/public/style.css',import.meta.url),'utf8');
 
 test('DUPLA 6: cada data-nav apunta a una vista que content() sabe pintar',()=>{

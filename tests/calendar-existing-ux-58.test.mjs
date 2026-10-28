@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-const app=readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8');
+const app=[readFileSync(new URL('../edge/public/app.js',import.meta.url),'utf8'),...['pdf','ajustes','conexiones'].map(m=>readFileSync(new URL('../edge/public/m/'+m+'.js',import.meta.url),'utf8'))].join('\n');
 test('calendario existente es el flujo principal, sin crear otro por defecto',()=>{
  const attach=app.indexOf('id="shared-calendar-attach"');
  assert.ok(attach>0);
