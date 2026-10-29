@@ -1242,7 +1242,11 @@ button.h6-chip:hover{background:rgba(255,255,255,.22)}
 .tn-meta{display:flex;align-items:center;gap:8px;font-size:11px;color:#6f7590;flex-wrap:wrap}.tn-meta b{color:#2a3150}.tn-meta time{margin-right:auto}.tn-tag{padding:2px 8px;border-radius:20px;font-weight:800;font-size:10px;background:#eaf0fc;color:#3d5fae}
 .tn-ayuda{border-left-color:#3fa77a}.tn-ayuda .tn-tag{background:#e3f5ec;color:#22744f}.tn-bloqueo{border-left-color:#d9534f}.tn-bloqueo .tn-tag{background:#fbe6e5;color:#a83632}.tn-falta{border-left-color:#e0a030}.tn-falta .tn-tag{background:#fdf1dc;color:#93630f}
 .tn-add{display:grid;grid-template-columns:170px 1fr auto;gap:8px;align-items:start;margin-top:10px}.tn-add textarea{min-height:42px;resize:vertical}.tn-chip{color:#3d5fae}
-@media(max-width:760px){.tn-add{grid-template-columns:1fr}}
+.tn-btns{display:flex;gap:8px;flex-wrap:wrap}.tn-btns .btn{display:inline-flex;align-items:center;gap:6px;flex-direction:row}.tn-up{cursor:pointer}.tn-fname{grid-column:1/-1;color:#3d5fae;font-weight:600;overflow-wrap:anywhere}
+.tn-file{display:flex;gap:10px;align-items:center;margin-top:8px;padding:8px;border-radius:10px;background:#f5f7fc;border:1px solid #e3e7f2;min-width:0}.tn-file>div{min-width:0;display:flex;flex-direction:column;gap:2px}.tn-file b{font-size:13px;overflow-wrap:anywhere}.tn-file small{font-size:11px;color:#6f7590}
+.tn-thumb{flex:none}.tn-thumb img{display:block;width:64px;height:64px;object-fit:cover;border-radius:8px}.tn-fic{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:9px;background:#eaf0fc;color:#3d5fae}
+.tn-flinks{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;font-weight:700}.tn-flinks a{display:inline-flex;align-items:center;gap:4px;color:#3d5fae;text-decoration:none}
+@media(max-width:760px){.tn-add{grid-template-columns:1fr}}:root[data-theme="dark"] .tn-file{background:rgba(255,255,255,.04);border-color:#3a3f5c}:root[data-theme="dark"] .tn-file b{color:var(--v6-ink)}
 :root[data-theme="dark"] .tn-item{background:var(--v6-panel);border-top-color:#3a3f5c;border-right-color:#3a3f5c;border-bottom-color:#3a3f5c}:root[data-theme="dark"] .tn-meta b,:root[data-theme="dark"] .tn-item p{color:var(--v6-ink)}
 /* Finanzas de la cuenta compartida */
 .fin-page{display:flex;flex-direction:column;gap:18px}.fin-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}.fin-head .page-heading{margin-bottom:0}.fin-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.fin-actions .st-seg button{padding:8px 14px;font-size:13px}

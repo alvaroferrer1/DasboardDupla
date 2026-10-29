@@ -59,7 +59,7 @@ function validDate(value){
 function sha(token){return createHash('sha256').update(token).digest('hex');}
 // DUPLA 6: tablas y archivos extra que deben viajar en la copia completa.
 const V6_TABLES=['agent_memory','shared_settings','user_prefs','connections','calendar_marks','trip_days','couple_items','project_quotes','meetings','meeting_segments','director_states','board_tasks','dest_notes','task_notes',...FIN_TABLES];
-function v6Files(data){const out=(data.projects||[]).map(p=>p.cover_file).filter(Boolean);const av=(data.shared_settings||[]).find(r=>r.key==='dupla_avatar');if(av){try{out.push(JSON.parse(av.value));}catch{}}return out.filter(n=>typeof n==='string'&&/^[a-f0-9-]{36}$/.test(n));}
+function v6Files(data){const out=[...(data.projects||[]).map(p=>p.cover_file),...(data.task_notes||[]).map(n=>n.stored_name)].filter(Boolean);const av=(data.shared_settings||[]).find(r=>r.key==='dupla_avatar');if(av){try{out.push(JSON.parse(av.value));}catch{}}return out.filter(n=>typeof n==='string'&&/^[a-f0-9-]{36}$/.test(n));}
 // Nombre legible del dispositivo para «Sesiones activas» (solo sistema y navegador, nada identificable).
 function deviceName(ua=''){ua=String(ua);const os=/iPhone/.test(ua)?'iPhone':/iPad/.test(ua)?'iPad':/Android/.test(ua)?'Android':/Windows/.test(ua)?'Windows':/Mac OS X|Macintosh/.test(ua)?'Mac':/Linux/.test(ua)?'Linux':'Dispositivo';const br=/Edg\//.test(ua)?'Edge':/OPR\//.test(ua)?'Opera':/Firefox\//.test(ua)?'Firefox':/CriOS|Chrome\//.test(ua)?'Chrome':/Safari\//.test(ua)?'Safari':'Navegador';return `${os} · ${br}`;}
 function userFromReq(req){const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('dos_session='));if(!cookie)return null;const token=cookie.slice(12);if(!/^[a-f0-9]{64}$/.test(token))return null;return get(`SELECT users.id,users.name,users.email,sessions.token_hash FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?`,sha(token),now())||null;}
@@ -1335,7 +1335,7 @@ async function api(req,res,url){
  if(trash&&req.method==='POST'){
   const p=get('SELECT * FROM projects WHERE id=? AND deleted_at IS NOT NULL',trash[1]);if(!p)fail(404,'Proyecto no encontrado en papelera');
   if(trash[2]==='restore'){run('UPDATE projects SET deleted_at=NULL,updated_at=? WHERE id=?',now(),p.id);logChange(p,u,'restauró el proyecto',p.title);respond(res,200,{project:project(p.id)});return;}
-  const remnants=all('SELECT stored_name FROM assets WHERE project_id=?',p.id);run('DELETE FROM project_create_requests WHERE project_id=?',p.id);run('DELETE FROM projects WHERE id=?',p.id);for(const f of remnants)try{removeFile(f.stored_name);}catch{}
+  const remnants=[...all('SELECT stored_name FROM assets WHERE project_id=?',p.id),...all('SELECT n.stored_name FROM task_notes n JOIN tasks t ON t.id=n.task_id WHERE t.project_id=? AND n.stored_name IS NOT NULL',p.id)];run('DELETE FROM project_create_requests WHERE project_id=?',p.id);run('DELETE FROM projects WHERE id=?',p.id);for(const f of remnants)try{removeFile(f.stored_name);}catch{}
   notifyPartner(u.id,null,p.space,'eliminó definitivamente un proyecto',p.title);notify(p.space,p.id,u.id);respond(res,200,{ok:true});return;
  }
  const versions=path.match(/^\/api\/sections\/([a-f0-9-]{36})\/versions(?:\/([a-f0-9-]{36})\/restore)?$/);
@@ -1506,8 +1506,9 @@ async function api(req,res,url){
    res.writeHead(200,{'Content-Type':inline?row.mime:'application/octet-stream','Content-Disposition':`${inline?'inline':'attachment'}; filename*=UTF-8''${encodeURIComponent(safeName)}`,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'});res.end(readFile(row.stored_name));return;
   }
   if(req.method==='DELETE'){
+   const noteFiles=kind==='tasks'?all('SELECT stored_name FROM task_notes WHERE task_id=? AND stored_name IS NOT NULL',row.id):[];
    if(kind==='tasks')run('UPDATE tasks SET blocked_by=NULL,revision=revision+1 WHERE blocked_by=?',row.id);
-   run(`DELETE FROM ${singular} WHERE id=?`,row.id);
+   run(`DELETE FROM ${singular} WHERE id=?`,row.id);for(const f of noteFiles)try{removeFile(f.stored_name);}catch{}
    if(kind==='assets'){try{removeFile(row.stored_name);}catch{}}
    logChange(p,u,'eliminó '+({tasks:'una tarea',sections:'una sección',events:'un plan',links:'un enlace',assets:'un archivo',milestones:'un hito',expenses:'un gasto'}[kind]),row.title||row.name||row.label||'');respond(res,200,{ok:true});return;
   }

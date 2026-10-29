@@ -770,8 +770,22 @@ test('Notas de avance en tareas (tablero y proyecto): quedan en la tarea, avisan
  r=await f.call('/api/task-notes','POST',{kind_of:'project',id:tid,kind:'bloqueo',content:'La tienda está cerrada'},b);assert.equal(r.status,201);
  assert.equal((await f.call('/api/projects/'+p.id,'GET',undefined,a)).data.project?.tasks?.[0]?.notes_count??(await f.call('/api/projects/'+p.id,'GET',undefined,a)).data.tasks?.[0]?.notes_count,1);
  assert.equal((await f.call('/api/task-notes?kind=project&id=00000000-0000-0000-0000-000000000000','GET',undefined,a)).status,404);
- // Borrar la tarea borra sus notas.
- await f.call('/api/board/'+bt.id,'DELETE',undefined,a);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM task_notes WHERE board_id=?').get(bt.id).n,0);
+ // Archivos dentro de la tarea: PDF/imagen como versiones, se descargan, avisan, entran en la copia y se borran con la tarea.
+ const pdf=Buffer.from('%PDF-1.4 plano v1'),png=Buffer.from([137,80,78,71,13,10,26,10,1,2,3]);
+ r=await f.call('/api/task-notes','POST',{kind_of:'board',id:bt.id,content:'Primera versión',file:{name:'plano.pdf',mime:'application/pdf',base64:pdf.toString('base64')}},a);assert.equal(r.status,201);
+ r=await f.call('/api/task-notes','POST',{kind_of:'board',id:bt.id,kind:'avance',file:{name:'plano.pdf',mime:'application/pdf',base64:Buffer.from('%PDF-1.4 plano v2').toString('base64')}},b);assert.equal(r.status,201);
+ const files=r.data.items.filter(x=>x.file_name==='plano.pdf');assert.equal(files.length,2);assert.equal(files[0].file_size,pdf.length);assert.equal(files[1].content,'');assert.ok(!('stored_name' in files[0]));
+ let dl=await f.call(`/api/task-notes/${files[0].id}/file`,'GET',undefined,b);assert.equal(dl.status,200);assert.equal(dl.type,'application/pdf');assert.deepEqual(dl.data,pdf);
+ assert.ok(f.db.prepare("SELECT 1 FROM notifications WHERE user_id=? AND action='subió un archivo a una tarea' AND detail LIKE 'Mudanza: plano.pdf%'").get(uB));
+ assert.equal((await f.call('/api/task-notes','POST',{kind_of:'board',id:bt.id,file:{name:'falso.png',mime:'image/png',base64:pdf.toString('base64')}},a)).status,415);
+ r=await f.call('/api/task-notes','POST',{kind_of:'project',id:tid,file:{name:'foto.png',mime:'image/png',base64:png.toString('base64')}},a);assert.equal(r.status,201);
+ dl=await f.call(`/api/task-notes/${r.data.items.at(-1).id}/file`,'GET',undefined,b);assert.equal(dl.type,'image/png');assert.deepEqual(dl.data,png);
+ const snap=(await f.call('/api/snapshot','GET',undefined,a)).data,stored=f.db.prepare('SELECT stored_name FROM task_notes WHERE stored_name IS NOT NULL').all().map(x=>x.stored_name);
+ assert.equal(stored.length,3);for(const s of stored)assert.ok(snap.files.some(x=>x.stored_name===s),'el archivo entra en la copia completa');
+ const chunks=n=>f.db.prepare('SELECT COUNT(*) AS n FROM upload_chunks WHERE name=?').get(n).n,sn=id=>f.db.prepare('SELECT stored_name FROM task_notes WHERE id=?').get(id).stored_name;
+ const s2=sn(files[1].id),s1=sn(files[0].id);assert.ok(chunks(s2)>0);assert.equal((await f.call('/api/task-notes/'+files[1].id,'DELETE',undefined,b)).status,200);assert.equal(chunks(s2),0);
+ // Borrar la tarea borra sus notas y sus archivos.
+ await f.call('/api/board/'+bt.id,'DELETE',undefined,a);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM task_notes WHERE board_id=?').get(bt.id).n,0);assert.equal(chunks(s1),0);
 });
 
 test('Tarea vencida sin terminar: aviso a los dos una sola vez (tablero y proyecto), no si está hecha ni si venció hace días',async(t)=>{

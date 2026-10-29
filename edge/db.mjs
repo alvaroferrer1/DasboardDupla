@@ -82,6 +82,11 @@ export function createDB(storage) {
  sql.exec("CREATE TABLE IF NOT EXISTS board_tasks(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','doing','blocked','done')),assignee TEXT REFERENCES users(id) ON DELETE SET NULL,priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('low','normal','high','urgent')),parent_id TEXT REFERENCES board_tasks(id) ON DELETE SET NULL,due_date TEXT,sort REAL NOT NULL DEFAULT 0,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,done_at TEXT)");
  // Notas de avance dentro de cada tarea (de proyecto o del tablero): avances, ayudas, bloqueos o información que falta.
  sql.exec("CREATE TABLE IF NOT EXISTS task_notes(id TEXT PRIMARY KEY,task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,board_id TEXT REFERENCES board_tasks(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL DEFAULT 'avance' CHECK(kind IN ('avance','ayuda','bloqueo','falta')),content TEXT NOT NULL,created_at TEXT NOT NULL)");
+ const tnCols=sql.exec('PRAGMA table_info(task_notes)').toArray().map(r=>r.name);
+ if(!tnCols.includes('stored_name'))sql.exec("ALTER TABLE task_notes ADD COLUMN stored_name TEXT");
+ if(!tnCols.includes('file_name'))sql.exec("ALTER TABLE task_notes ADD COLUMN file_name TEXT NOT NULL DEFAULT ''");
+ if(!tnCols.includes('file_mime'))sql.exec("ALTER TABLE task_notes ADD COLUMN file_mime TEXT NOT NULL DEFAULT ''");
+ if(!tnCols.includes('file_size'))sql.exec("ALTER TABLE task_notes ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0");
  // Finanzas de la cuenta compartida: movimientos, presupuesto mensual por categoría, objetivos de ahorro y facturas.
  sql.exec("CREATE TABLE IF NOT EXISTS fin_moves(id TEXT PRIMARY KEY,kind TEXT NOT NULL CHECK(kind IN ('in','out')),amount REAL NOT NULL,category TEXT NOT NULL,title TEXT NOT NULL,date TEXT NOT NULL,paid_by TEXT REFERENCES users(id) ON DELETE SET NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
  sql.exec('CREATE INDEX IF NOT EXISTS fin_moves_date ON fin_moves(date)');

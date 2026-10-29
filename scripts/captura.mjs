@@ -2,7 +2,7 @@
 // Uso: node scripts/captura.mjs [--anchos 390,768,1440] [--clic "selector"]... [--nombre etiqueta] [--sin-login] [--solo-vista]
 // Informa de errores de consola, peticiones fallidas y desbordamiento horizontal; sale con codigo 1 si hay alguno.
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 
@@ -66,6 +66,9 @@ async function sembrar() {
   await alvaro('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'avance', content: 'He mirado 3 hoteles cerca del centro, el mejor es el Palafox.' });
   await angie('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'falta', content: '¿Llegamos el viernes o el sábado? Sin eso no puedo reservar.' });
   await alvaro('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'bloqueo', content: 'La web del hotel da error al pagar con tarjeta.' });
+  const icon = (await readFile(new URL('../edge/public/dupla-icon-512.png', import.meta.url))).toString('base64');
+  await angie('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'avance', content: 'Foto de la habitación que nos gusta', file: { name: 'habitacion.png', mime: 'image/png', base64: icon } });
+  await alvaro('/api/task-notes', { kind_of: 'board', id: t1.id, kind: 'avance', file: { name: 'reserva-hotel.pdf', mime: 'application/pdf', base64: Buffer.from('%PDF-1.4 prueba').toString('base64') } });
   // Finanzas: 6 meses de ingresos y gastos, límites, objetivos y facturas.
   const mes = (n, dia) => { const x = new Date(); x.setDate(1); x.setMonth(x.getMonth() - n); return `${x.toISOString().slice(0, 7)}-${String(Math.min(dia, 28)).padStart(2, '0')}`; };
   for (let n = 5; n >= 0; n--) { const k = 1 + (n % 3) * 0.08;
