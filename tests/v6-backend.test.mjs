@@ -537,6 +537,9 @@ test('Calendarios personales fusionados (solo lectura), Meet en eventos, choques
   assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM google_connections WHERE user_id!=?').get(uA).n,0,'No sustituye la conexión del calendario conjunto');
   const merged=(await f.call(`/api/calendar/merged?from=${today}&to=${today}`,'GET',undefined,a)).data;
   assert.equal(merged.items.length,1);assert.equal(merged.items[0].title,'Médico');assert.equal(merged.items[0].owner_name!=null,true);assert.equal(merged.items[0].end,'11:00');
+  // Álvaro borra un evento del calendario de Angie: el borrado lleva sus datos (de quién y qué calendario) y se hace con el acceso de ella.
+  const mi=merged.items[0],dl=await f.call('/api/google/personal/events','DELETE',{owner_id:mi.owner_id,calendar_id:mi.cal_id,event_id:mi.gid},a);assert.equal(dl.status,200,JSON.stringify(dl.data));
+  assert.ok(net.calls.some(c=>c.includes('/calendars/angie%40gmail.com/events/m1')),'llega a Google el borrado en el calendario de Angie');
   const sh=(await f.call(`/api/google/shared/events?from=${today}&to=${today}`,'GET',undefined,a)).data.items[0];assert.equal(sh.meet,'https://meet.google.com/xyz-abcd-efg');assert.equal(sh.end,'11:30');
   const r=(await f.call('/api/daily-brief/run','POST',{},a)).data;assert.match(r.brief,/Choques: Cena \(10:30\) y Médico \(10:00\)|Choques: Médico \(10:00\) y Cena \(10:30\)/);
   const ev=await f.call('/api/google/shared/events','POST',{title:'Reunión web',date:today,time:'18:00',end_time:'19:30',meet:true,request_id:'11111111-2222-4333-8444-555555555555'},a);
