@@ -84,6 +84,11 @@ async function sembrar() {
   await angie('/api/finance/goals', { title: 'Material para retiros', target: 1500, saved: 650, icon: 'sun', color: '#d6408a' });
   await alvaro('/api/finance/bills', { title: 'Luz', amount: 58.4, category: 'hogar', due_date: d(8), repeat: 'monthly' });
   await angie('/api/finance/bills', { title: 'Seguro del coche', amount: 312, category: 'transporte', due_date: d(-1) });
+  const fg = (await alvaro('/api/finance/groups', { title: 'Escapada a Lisboa', icon: 'plane', color: '#e08a1e', start_date: d(-12), end_date: d(-9) })).group;
+  for (const [amount, who, split, category, title, dia] of [[186, 'lvaro', 'half', 'transporte', 'Vuelos', -12], [240, 'Angie', 'half', 'ocio', 'Hotel Bairro Alto', -12], [48.6, 'lvaro', 'half', 'comida', 'Cena en Time Out', -11], [22, 'Angie', 'payer', 'ocio', 'Pulsera para ella', -10], [35, 'lvaro', 'other', 'ocio', 'Regalo para Angie', -10], [18.4, '', 'half', 'transporte', 'Tranvía 28', -10], [64, 'Angie', 'p70', 'comida', 'Pastéis y compras', -9]])
+    await (who === 'Angie' ? angie : alvaro)('/api/finance/moves', { kind: 'out', amount, category, title, date: d(dia), paid_by: who ? uid(who) : '', split, group_id: fg.id });
+  await angie(`/api/finance/groups/${fg.id}/settle`, { amount: 20 });
+  await alvaro('/api/finance/groups', { project_id: bud.id });
   await angie('/api/board', { title: 'Pedir cita médico', priority: 'normal', status: 'doing' });
   await angie('/api/board', { title: 'Comprar regalo', priority: 'low', status: 'done' });
   console.log('DATOS de ejemplo creados', [bud.title, ita.title, cena.title, web.title].join(' · '));

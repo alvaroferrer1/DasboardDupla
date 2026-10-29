@@ -93,6 +93,13 @@ export function createDB(storage) {
  sql.exec('CREATE TABLE IF NOT EXISTS fin_budgets(category TEXT PRIMARY KEY,monthly REAL NOT NULL)');
  sql.exec("CREATE TABLE IF NOT EXISTS fin_goals(id TEXT PRIMARY KEY,title TEXT NOT NULL,target REAL NOT NULL,saved REAL NOT NULL DEFAULT 0,icon TEXT NOT NULL DEFAULT 'star',color TEXT NOT NULL DEFAULT '#2f6fd8',created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
  sql.exec("CREATE TABLE IF NOT EXISTS fin_bills(id TEXT PRIMARY KEY,title TEXT NOT NULL,amount REAL NOT NULL,category TEXT NOT NULL DEFAULT 'hogar',due_date TEXT NOT NULL,repeat TEXT NOT NULL DEFAULT 'none' CHECK(repeat IN ('none','monthly')),paid_at TEXT,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
+ // Carpetas de gastos compartidos (tipo Tricount): cada gasto dice quién pagó y cómo se reparte; los pagos entre vosotros saldan la cuenta.
+ sql.exec("CREATE TABLE IF NOT EXISTS fin_groups(id TEXT PRIMARY KEY,title TEXT NOT NULL,icon TEXT NOT NULL DEFAULT 'plane',color TEXT NOT NULL DEFAULT '#2f6fd8',project_id TEXT,start_date TEXT,end_date TEXT,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
+ sql.exec("CREATE TABLE IF NOT EXISTS fin_settles(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES fin_groups(id) ON DELETE CASCADE,from_user TEXT NOT NULL REFERENCES users(id),to_user TEXT NOT NULL REFERENCES users(id),amount REAL NOT NULL,date TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL)");
+ const fmCols=sql.exec('PRAGMA table_info(fin_moves)').toArray().map(r=>r.name);
+ if(!fmCols.includes('group_id'))sql.exec('ALTER TABLE fin_moves ADD COLUMN group_id TEXT');
+ if(!fmCols.includes('split'))sql.exec("ALTER TABLE fin_moves ADD COLUMN split TEXT NOT NULL DEFAULT 'half'");
+ sql.exec('CREATE INDEX IF NOT EXISTS fin_moves_group ON fin_moves(group_id)');
  // Avisos propios de cada destino (lo que vais aprendiendo: fiestas, ferias, subidas de precio…).
  sql.exec('CREATE TABLE IF NOT EXISTS dest_notes(id TEXT PRIMARY KEY,dest_key TEXT NOT NULL,dest TEXT NOT NULL,month INTEGER NOT NULL DEFAULT 0,text TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL)');
  // Viajes (R0284-R0295): día completado, actividad hecha/cancelada y reserva utilizada.
@@ -109,6 +116,8 @@ export function createDB(storage) {
  sql.exec("CREATE TABLE IF NOT EXISTS guardian_proposals(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,issue_type TEXT NOT NULL,notice_date TEXT NOT NULL,title TEXT NOT NULL,detail TEXT NOT NULL,task_title TEXT NOT NULL,severity TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('proposed','approved','rejected','executed')),created_at TEXT NOT NULL,decided_by TEXT REFERENCES users(id),decided_at TEXT,executed_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,executed_by TEXT REFERENCES users(id),executed_at TEXT,UNIQUE(project_id,issue_type,notice_date))");
  // OAuth secrets never appear in snapshot/export: encrypted token at rest and state bound to one user.
  sql.exec('CREATE TABLE IF NOT EXISTS google_connections(user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,encrypted_token TEXT NOT NULL,expires_at INTEGER NOT NULL,connected_at TEXT NOT NULL)');
+ // Permiso de Google caducado (invalid_grant): la conexión se conserva pero se marca para reconectar.
+ for(const t of ['google_connections','google_personal'])if(!sql.exec(`PRAGMA table_info(${t})`).toArray().some(r=>r.name==='expired_at'))sql.exec(`ALTER TABLE ${t} ADD COLUMN expired_at TEXT`);
  sql.exec('CREATE TABLE IF NOT EXISTS google_oauth_states(state TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,verifier TEXT NOT NULL,expires_at INTEGER NOT NULL)');
  const stCols=sql.exec('PRAGMA table_info(google_oauth_states)').toArray().map(r=>r.name);if(stCols.length&&!stCols.includes('kind'))sql.exec("ALTER TABLE google_oauth_states ADD COLUMN kind TEXT NOT NULL DEFAULT 'shared'");
  sql.exec('CREATE TABLE IF NOT EXISTS google_event_map(user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,google_id TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id))');

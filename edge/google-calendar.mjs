@@ -15,7 +15,7 @@ export async function decryptToken(env,blob){const [iv,body]=String(blob||'').sp
 export async function tokenRequest(env,params){
  const auth=new URLSearchParams({...params,client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET});
  const r=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:auth,signal:AbortSignal.timeout(18000)});
- if(!r.ok)throw Error('Google rechazó el intercambio OAuth (HTTP '+r.status+')');const json=await r.json();if(!json.access_token)throw Error('Google no devolvió un access_token');return json;
+ if(!r.ok){let why='';try{why=(await r.json()).error||'';}catch{}const e=Error(why==='invalid_grant'?'Google ha caducado o retirado el permiso de esta cuenta':'Google rechazó el intercambio OAuth (HTTP '+r.status+')');e.code=why;throw e;}const json=await r.json();if(!json.access_token)throw Error('Google no devolvió un access_token');return json;
 }
 // Fixed Google API host and constrained paths: never accept remote URLs from clients.
 export async function googleRequest(accessToken,method,path,body,headers={}){

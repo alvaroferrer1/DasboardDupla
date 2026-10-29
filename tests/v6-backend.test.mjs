@@ -549,6 +549,27 @@ test('Calendarios personales fusionados (solo lectura), Meet en eventos, choques
  }finally{net.restore();}
 });
 
+test('Permiso de Google caducado (invalid_grant): se marca, avisa a los dos una vez, mensaje claro y reconectar lo arregla',async()=>{
+ const CAL='1c7cfd3eac8076266d57645e87107495f0025248d22d55d20752f7d81c3ba1d7@group.calendar.google.com';
+ const env={GOOGLE_CLIENT_ID:'id',GOOGLE_CLIENT_SECRET:'s',PUBLIC_ORIGIN:'https://dupla.test',INTEGRATION_ENCRYPTION_KEY:'K'.repeat(64)};
+ const f=fixture({async run(){return {text:'x'};}},env);const a=await f.login();const b=await f.loginAs('b@dupla.test','clave-super-b-2345');
+ const {encryptToken}=await import('../edge/google-calendar.mjs');const uA=f.db.prepare("SELECT id FROM users WHERE email='a@dupla.test'").get().id;
+ f.db.prepare('INSERT INTO google_connections(user_id,encrypted_token,expires_at,connected_at) VALUES(?,?,?,?)').run(uA,await encryptToken(env,{access_token:'old',refresh_token:'caducado'}),Date.now()-1000,new Date().toISOString());
+ f.db.prepare("INSERT INTO google_shared_calendar(singleton,calendar_id,owner_user_id,title,member_email_a,member_email_b,share_status,created_at) VALUES('main',?,?,?,?,?,?,?)").run(CAL,uA,'DUPLA · Nuestro calendario','','','shared',new Date().toISOString());
+ let grant='invalid';const net=mockFetch(async(u,o)=>{
+  if(u.hostname==='oauth2.googleapis.com'){const p=new URLSearchParams(o.body);if(p.get('grant_type')==='refresh_token'&&grant==='invalid')return Response.json({error:'invalid_grant',error_description:'Token has been expired or revoked.'},{status:400});return Response.json({access_token:'nuevo',refresh_token:'r2',expires_in:3600});}
+  if(u.pathname.includes('/events/'))return new Response(null,{status:204});return Response.json({items:[]});});
+ try{
+  assert.equal((await f.call('/api/google/shared/status','GET',undefined,b)).data.owner_connected,true);
+  const del=await f.call('/api/google/shared/events/abc123','DELETE',undefined,b);assert.equal(del.status,409);assert.match(del.data.error,/caducado el permiso de .+Reconectar Google/);assert.doesNotMatch(del.data.error,/HTTP 400/);
+  const st=(await f.call('/api/google/shared/status','GET',undefined,b)).data;assert.equal(st.owner_connected,false);assert.equal(st.owner_expired,true);assert.equal(st.is_owner,false);assert.ok(st.owner_name);
+  await f.call('/api/google/shared/events/abc123','DELETE',undefined,a);const n=f.db.prepare("SELECT user_id FROM notifications WHERE action='Google desconectado'").all();assert.equal(n.length,2,'un aviso a cada uno, solo una vez');
+  // El propietario reconecta: vuelve a funcionar sin perder el calendario conjunto.
+  grant='ok';const s=await f.call('/api/google/start','POST',{},a);const state=new URL(s.data.url).searchParams.get('state');assert.equal((await f.call('/api/google/callback?state='+state+'&code=c1','GET')).status,302);
+  assert.equal((await f.call('/api/google/shared/status','GET',undefined,b)).data.owner_connected,true);assert.equal((await f.call('/api/google/shared/events/abc123','DELETE',undefined,b)).status,200);
+ }finally{net.restore();}
+});
+
 test('Tablero de tareas: estados, prioridad, persona, orden y tarea padre que bloquea el cierre',async()=>{
  const f=fixture();const a=await f.login();const b=await f.loginAs('b@dupla.test','clave-super-b-2345');
  const uB=f.db.prepare("SELECT id FROM users WHERE email='b@dupla.test'").get().id;
@@ -843,4 +864,43 @@ test('Finanzas: movimientos, comparativa con el periodo anterior, presupuesto po
   const mid=f.db.prepare("SELECT id FROM fin_moves WHERE title='Supermercado'").get().id;assert.equal((await f.call('/api/finance/moves/'+mid,'PATCH',{amount:95.4},a)).status,200);assert.equal((await f.call('/api/finance/moves/'+mid,'DELETE',undefined,b)).status,200);
  }finally{t.mock.timers.reset();}
  assert.equal((await f.call('/api/finance','GET')).status,401);
+});
+
+test('Carpetas de gastos (tipo Tricount): reparto, quién debe a quién, saldar, carpeta de un viaje con sus gastos y borrado',async()=>{
+ const f=fixture();const a=await f.login();const b=await f.loginAs('b@dupla.test','clave-super-b-2345');
+ const [u1,u2]=f.db.prepare('SELECT id,name FROM users ORDER BY name').all();
+ let r=await f.call('/api/finance/groups','POST',{title:'Cena con amigos',icon:'heart'},a);assert.equal(r.status,201);const g=r.data.group;
+ assert.equal((await f.call('/api/finance/groups','POST',{title:'  '},a)).status,400);
+ // u1 paga 100 a medias, u2 paga 30 solo suyo, u2 paga 40 entero del otro, u1 paga 50 asumiendo el 20 %, 10 de la cuenta común.
+ for(const [amount,paid_by,split,title] of [[100,u1.id,'half','Restaurante'],[30,u2.id,'payer','Taxi suyo'],[40,u2.id,'other','Regalo para u1'],[50,u1.id,'p20','Copas'],[10,'','half','Bote']])
+  assert.equal((await f.call('/api/finance/moves','POST',{kind:'out',amount,category:'ocio',title,date:'2026-10-20',paid_by,split,group_id:g.id},b)).status,201);
+ assert.equal((await f.call('/api/finance/moves','POST',{kind:'out',amount:5,category:'ocio',title:'x',date:'2026-10-20',split:'mitad',group_id:g.id},b)).status,400);
+ assert.equal((await f.call('/api/finance/moves','POST',{kind:'in',amount:5,title:'x',date:'2026-10-20',group_id:g.id},b)).status,400);
+ let d=(await f.call('/api/finance/groups/'+g.id,'GET',undefined,a)).data,st=d.stats;
+ assert.equal(st.total,230);assert.equal(st.common,10);assert.equal(st.count,5);
+ // u2 debe a u1: 50 (restaurante) + 40 (el regalo de u1 lo pagó u2: u1 debe 40) + 40 (80 % de copas) → 50-40+40 = 50
+ assert.deepEqual(st.owes,{from:u2.id,to:u1.id,amount:50});
+ const p1=st.people.find(x=>x.id===u1.id);assert.equal(p1.paid,150);assert.equal(p1.share,50+40+10+5);
+ assert.ok(f.db.prepare("SELECT 1 FROM notifications WHERE action='apuntó un gasto en «Cena con amigos»'").get());
+ // Pago parcial y luego saldar el resto.
+ d=(await f.call(`/api/finance/groups/${g.id}/settle`,'POST',{amount:20},b)).data;assert.deepEqual(d.stats.owes,{from:u2.id,to:u1.id,amount:30});
+ d=(await f.call(`/api/finance/groups/${g.id}/settle`,'POST',{},b)).data;assert.equal(d.stats.owes,null);assert.equal(d.settles.length,2);
+ assert.equal((await f.call(`/api/finance/groups/${g.id}/settle`,'POST',{},b)).status,400,'nada que saldar');
+ d=(await f.call('/api/finance/settles/'+d.settles[0].id,'DELETE',undefined,a)).data;assert.equal(d.stats.owes.amount,30);
+ // Los gastos de la carpeta cuentan en Finanzas.
+ assert.equal((await f.call('/api/finance/moves?from=2026-10-01&to=2026-10-31','GET',undefined,a)).data.items.filter(x=>x.group_id===g.id).length,5);
+ // Carpeta desde un viaje: entran sus gastos reales con quién pagó.
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Lisboa',start_date:'2026-11-02',end_date:'2026-11-05'},a)).data.project;
+ for(const [t,amt,who,cat] of [['Vuelos',200,u1.id,'flights'],['Cena',60,u2.id,'food']])assert.equal((await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:t,category:cat,estimated:amt,actual:amt,paid_by:who},a)).status,201);
+ const gl=(await f.call('/api/finance/groups','GET',undefined,a)).data;assert.ok(gl.projects.some(x=>x.id===p.id));
+ const pg=(await f.call('/api/finance/groups','POST',{project_id:p.id},a)).data;assert.equal(pg.group.title,'Lisboa');assert.equal(pg.group.start_date,'2026-11-02');
+ assert.equal(pg.stats.total,260);assert.deepEqual(pg.stats.owes,{from:u2.id,to:u1.id,amount:70});assert.deepEqual(pg.stats.cats.map(x=>x.category),['transporte','comida']);
+ assert.equal((await f.call('/api/finance/groups','POST',{project_id:p.id},a)).status,409);
+ assert.ok(!(await f.call('/api/finance/groups','GET',undefined,a)).data.projects.some(x=>x.id===p.id));
+ // Borrar la carpeta borra sus gastos y pagos, no los del viaje.
+ assert.equal((await f.call('/api/finance/groups/'+g.id,'DELETE',undefined,a)).status,200);
+ assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM fin_moves WHERE group_id=?').get(g.id).n,0);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM fin_settles WHERE group_id=?').get(g.id).n,0);
+ assert.equal((await f.call('/api/finance/groups/'+pg.group.id,'DELETE',undefined,a)).status,200);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM expenses WHERE project_id=?').get(p.id).n,2);
+ // Entran en la copia completa.
+ const snap=(await f.call('/api/snapshot','GET',undefined,a)).data;assert.ok(Array.isArray(snap.data.fin_groups)&&Array.isArray(snap.data.fin_settles));
 });
