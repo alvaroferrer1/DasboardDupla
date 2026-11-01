@@ -2,34 +2,13 @@ import { DurableObject } from 'cloudflare:workers';
 import { createApi } from './api.mjs';
 import { createDB } from './db.mjs';
 import { isAllowedSocketOrigin } from './origin.mjs';
-const security = {
- 'X-Content-Type-Options':'nosniff',
- 'Referrer-Policy':'same-origin',
- 'X-Frame-Options':'DENY',
- 'Permissions-Policy':'camera=(self), microphone=(self), geolocation=()',
- 'Strict-Transport-Security':'max-age=15552000',
- 'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' wss:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
-};
+import { runHourlyJobs } from './jobs.mjs';
+import { security } from './security.mjs';
 
 export class DosRoom extends DurableObject {
  constructor(ctx,env){super(ctx,env);this.ctx=ctx;this.env=env;this.app=createApi(ctx.storage,env,ctx);if(typeof ctx.setWebSocketAutoResponse==='function' && typeof WebSocketRequestResponsePair!=='undefined')ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping','pong'));}
  async alarm(){
-  // A failure in one scheduled subsystem must not prevent the others from running.
-  const jobs=[
-   ['reminders',()=>this.app.processReminders()],
-   ['guardian',()=>this.app.processGuardianReview()],
-   ['resumen',()=>this.app.processDailyBrief()],
-   ['repaso',()=>this.app.processWeeklyReview()],
-   ['avisos-dupla',()=>this.app.processAgentAlerts()],
-   // Automation rules and third-party webhooks stay paused until the owners explicitly enable them.
-   ...(this.env.DUPLA_AUTOMATIONS_ENABLED==='true'?[['automations',()=>this.app.processAutomationRules()]]:[]),
-   ['backup',()=>this.app.processScheduledBackup()],
-   ['drive',()=>this.app.processDriveBackup()],
-   ['email',()=>this.app.flushExternalNotices()],
-   ['push',()=>this.app.flushPushNotices()],
-   ...(this.env.DUPLA_AUTOMATIONS_ENABLED==='true'?[['webhooks',()=>this.app.flushWebhookQueue()]]:[])
-  ];
-  try{for(const [name,job] of jobs){try{await job();}catch(e){console.error('DUPLA scheduled '+name+':',String(e?.message||e).slice(0,160));try{this.app.alertFailure(name,e);}catch{}}}}
+  try{await runHourlyJobs(this.app,this.env);}
   finally{await this.ctx.storage.setAlarm(Date.now()+60*60*1000);}
  }
  async fetch(request){

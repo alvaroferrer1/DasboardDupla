@@ -110,6 +110,7 @@ try {
     }
     await page.goto(base + '/', { waitUntil: 'networkidle' });
     // --sin-red: la página ya cargada con el service worker; se corta la red y se recarga (modo sin cobertura).
+    for (let i = 0, n = Number(args[args.indexOf('--recargar') + 1]) || 0; args.includes('--recargar') && i < n; i++) { await page.evaluate(() => navigator.serviceWorker?.ready); await page.reload({ waitUntil: 'networkidle' }); }
     if (args.includes('--sin-red')) { await page.evaluate(() => navigator.serviceWorker.ready); await page.reload({ waitUntil: 'networkidle' }); await ctx.setOffline(true); await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForTimeout(2500); }
     for (const js of args.flatMap((a, i) => a === "--eval" ? [args[i + 1]] : [])) await page.evaluate(js);
     for (const sel of clics) { if (sel.startsWith("file:")) { const k = sel.lastIndexOf("="); await page.setInputFiles(sel.slice(5, k), sel.slice(k + 1)); await page.waitForTimeout(1500); continue; } if (sel.startsWith("fill:")) { const k = sel.lastIndexOf("="); await page.fill(sel.slice(5, k), sel.slice(k + 1)); continue; } await page.click(sel, { timeout: 5000 }); await page.waitForTimeout(400); }

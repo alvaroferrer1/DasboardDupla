@@ -11,7 +11,7 @@ test('action center: el endpoint se ejecuta después de auth(req)',()=>{
  assert.ok(ui.includes("case 'action-toggle':"));
  assert.ok(ui.includes("case 'actions-filter':"));
  assert.ok(ui.includes("case 'actions':return actionCenterPage()"));
- assert.ok(ui.includes("if(navEl.dataset.nav==='actions')S.actionData=await api('/api/action-center')"));
+ assert.ok(ui.includes("if(v==='actions')S.actionData=await api('/api/action-center')"));
 });
 test('action center: filtra proyectos archivados o borrados y lista tareas guardadas',()=>{
  const m=api.match(/const tasks=all\(`(SELECT t\.id,t\.project_id[\s\S]*?LIMIT 500)`\);/);

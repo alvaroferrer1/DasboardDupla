@@ -506,7 +506,7 @@ test('Lo que edita uno lo ve el otro: resumen del Inicio compartido, proyectos, 
 });
 
 test('Videollamada: la web publicada permite cámara y micrófono solo a DUPLA',async()=>{
- const {readFileSync}=await import('node:fs');const w=readFileSync(new URL('../edge/worker.mjs',import.meta.url),'utf8');
+ const {readFileSync}=await import('node:fs');const w=readFileSync(new URL('../edge/security.mjs',import.meta.url),'utf8');assert.match(readFileSync(new URL('../edge/worker.mjs',import.meta.url),'utf8'),/import \{ security \} from '\.\/security\.mjs'/);
  assert.match(w,/'Permissions-Policy':'camera=\(self\), microphone=\(self\)/);assert.ok(!/camera=\(\)/.test(w));
 });
 

@@ -1013,6 +1013,9 @@ async function api(req,res,url){
   let integrity='unavailable';try{const result=get('PRAGMA integrity_check');integrity=result?.integrity_check==='ok'?'ok':'attention';}catch{integrity='not_supported';}
   const probe=get('SELECT 1 AS ok');respond(res,200,{database_integrity:integrity,database_probe:probe?.ok===1?'ok':'attention',projects:get('SELECT COUNT(*) AS n FROM projects WHERE deleted_at IS NULL').n,deliverables:get('SELECT COUNT(*) AS n FROM work_deliverables').n,itinerary:get('SELECT COUNT(*) AS n FROM trip_stops').n,automations:get('SELECT COUNT(*) AS n FROM automation_rules').n,updated_at:now()});return;
  }
+ // Errores de la interfaz: se guardan los últimos 200 para poder verlos y corregirlos (antes se perdían en el navegador).
+ if(path==='/api/client-errors'&&req.method==='POST'){const b=await readBody(req),cut=(v,n)=>String(v||'').slice(0,n);run('INSERT INTO client_errors(user_id,message,detail,view,agent,created_at) VALUES(?,?,?,?,?,?)',u.id,cut(b.message,500)||'Error sin mensaje',cut(b.detail,4000),cut(b.view,80),cut(req.headers['user-agent'],200),now());run('DELETE FROM client_errors WHERE id NOT IN (SELECT id FROM client_errors ORDER BY id DESC LIMIT 200)');console.error('DUPLA interfaz:',cut(b.message,160));respond(res,200,{ok:true});return;}
+ if(path==='/api/client-errors'&&req.method==='GET'){respond(res,200,{items:all('SELECT e.id,e.message,e.detail,e.view,e.agent,e.created_at,us.name FROM client_errors e LEFT JOIN users us ON us.id=e.user_id ORDER BY e.id DESC LIMIT 50')});return;}
  if(path==='/api/weekly-review'&&req.method==='GET'){let rv=null;try{rv=JSON.parse(getShared('weekly_review')||'null');}catch{}respond(res,200,{review:rv});return;}
  if(path==='/api/weekly-review/run'&&req.method==='POST'){const r=await processWeeklyReview(true);respond(res,200,{review:r.review});return;}
  if(path==='/api/backups/drive'&&req.method==='GET'){const r=get("SELECT d.folder_id,d.last_at,d.last_file,d.last_check,d.last_error,d.connected_at,us.name FROM drive_backup d JOIN users us ON us.id=d.user_id WHERE d.id='main'");respond(res,200,{configured:googleConfigured(env),connected:!!r,...(r||{})});return;}
@@ -1586,5 +1589,13 @@ async function api(req,res,url){
  fail(404,'Ruta no encontrada');
 }
 
-return {api,userFromReq,isSessionActive,processReminders,processDailyBrief,processAgentAlerts,processGuardianReview,processAutomationRules,processScheduledBackup,processDriveBackup,processWeeklyReview,alertFailure,flushExternalNotices,flushPushNotices,flushWebhookQueue};
+// Limpieza de cada hora: la base no crece con lo caducado. Se conservan lo no leído y la actividad (es el historial visible).
+function processCleanup(){const t=Date.now(),iso=d=>new Date(t-d*864e5).toISOString(),out={};const q=(k,sql,...p)=>{try{out[k]=run(sql,...p)?.changes??0;}catch{out[k]=0;}};
+ q('sesiones','DELETE FROM sessions WHERE expires_at<?',new Date(t).toISOString());
+ q('avisos','DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at<?',iso(120));
+ q('bloqueos','DELETE FROM throttles WHERE since<?',t-864e5);
+ q('correo',"DELETE FROM notification_delivery WHERE status IN ('sent','failed') AND notification_id NOT IN (SELECT id FROM notifications)");
+ q('push',"DELETE FROM push_delivery WHERE status IN ('sent','failed') AND notification_id NOT IN (SELECT id FROM notifications)");
+ return out;}
+return {api,userFromReq,isSessionActive,processReminders,processCleanup,processDailyBrief,processAgentAlerts,processGuardianReview,processAutomationRules,processScheduledBackup,processDriveBackup,processWeeklyReview,alertFailure,flushExternalNotices,flushPushNotices,flushWebhookQueue};
 }

@@ -44,7 +44,7 @@ test('Director General UI offers review, approve, discard and explicitly execute
  assert(client.includes("S.guardianActions=await api('/api/guardian/actions')"));
  assert(client.includes("operation==='execute'&&!window.confirm"));
  assert(client.includes("operation==='approve'&&!window.confirm"));
- const edge=source('edge/worker.mjs');assert(edge.includes("DUPLA_AUTOMATIONS_ENABLED==='true'"));
+ const edge=source('edge/jobs.mjs');assert(edge.includes("DUPLA_AUTOMATIONS_ENABLED==='true'"));assert(source('edge/worker.mjs').includes('runHourlyJobs(this.app,this.env)'));
 });
 
 test('Mobile notifications guide and safe Worker body limit',()=>{

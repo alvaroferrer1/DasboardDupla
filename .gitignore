@@ -19,3 +19,9 @@ logs-private/
 
 # Capturas de verificacion locales
 .capturas/
+
+# Servidor de reserva y entrada de Firebase
+.env.reserva
+firebase/functions/node_modules/
+firebase/.firebase/
+firebase/firebase-debug.log

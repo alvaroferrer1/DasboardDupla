@@ -4,7 +4,10 @@ Objetivo: que DUPLA pueda funcionar **igual** en Cloudflare o en otro servidor (
 
 Para pedirlo: «haz MIGRACION_DUAL.md» (entero) o «haz el paso N de MIGRACION_DUAL.md».
 
-Estado a 2026-10-28 (v6.8.0): **no empezado**. Este documento es el inventario de lo que hay que hacer.
+Estado a 2026-10-31 (v6.14.0): **en marcha**. Ver `RESERVA_Y_FIREBASE.md`.
+- Hecho: paso 1 (`edge/node-storage.mjs`), 2 (`servidor-reserva.mjs`), 3 (WebSocket propio, sin dependencias), 4 (`edge/jobs.mjs` común con Cloudflare), 10 en PC (copia horaria desde Cloudflare, sin pisar cambios locales) y 11 (`tests/reserva.test.mjs`).
+- Extra: entrada alternativa en Google (`firebase/`, `npm run firebase:publicar`) para cuando el operador bloquee Cloudflare.
+- Pendiente: 5 (IA fuera de Cloudflare), 6 (TURN), 7 (User-Agent), 8 (Docker/VPS), 9 (dominio propio: el usuario eligió dos enlaces), 12 y 13.
 
 ---
 

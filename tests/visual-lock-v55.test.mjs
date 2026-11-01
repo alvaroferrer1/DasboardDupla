@@ -1,4 +1,4 @@
-// Immutable design contract: DUPLA 5.5 only updates backend functionality.
+// Contrato visual: base aprobada DUPLA v7 (sistema de diseño, 2026-10-31). Cambiarla solo a propósito.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -26,15 +26,15 @@ const files=[
  ],
  [
   "edge/public/index.html",
-  "ad95e1c82ca4f8099401b35b23b423e337f8b6e7865798b8b228920662c26684"
+  "b5c48212d8b01895f06d5db341853674a527f0c4b519b43a78a50e5faeba22f1"
  ],
  [
   "edge/public/manifest.webmanifest",
-  "3a1234fb0cf6fdf49240bfa37ea15a3a33442239061bae4185e96dcfb6a40bed"
+  "053024e397cca82d901199949c81df6f942cb2ba29c7d28195df9e6fc848fbb0"
  ],
  [
   "edge/public/style.css",
-  "c5b51085ef716946549e447bbb514ebf26f791afa76771d5b53da2caf3e9988e"
+  "b1fafd95359463de3775faa615dc1e0bf4fe6c51232367e280b846874973584b"
  ],
  [
   "public/dupla-horizontal.svg",

@@ -52,7 +52,7 @@ test('Navegación informa errores del servidor y conserva worker/bd originales',
  assert(cfg.includes('"name": "dos-espacios-compartido"'));
  assert(cfg.includes('"class_name": "DosRoom"'));
  assert(get('edge/worker.mjs').includes("idFromName('shared-home')"));
- assert.match(html,/v=(5\.[78]|6\.\d+)\.0/);
+ assert.match(html,/v=(5\.[78]|[67]\.\d+)\.0/);
 });
 
 test('Laboratorio IA no rompe la pestaña si el estado externo todavía está cargando',()=>{
