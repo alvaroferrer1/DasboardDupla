@@ -1357,3 +1357,21 @@ body:has(.modal-overlay) .toast{top:max(12px,env(safe-area-inset-top));bottom:au
 html.dp-loading::before{content:'';position:fixed;top:0;left:0;right:0;height:3px;z-index:300;pointer-events:none;background:linear-gradient(90deg,transparent,var(--c-i500),transparent) no-repeat;background-size:40% 100%;animation:dp-load 1s linear infinite,dp-fade .2s .15s both}
 .modal-overlay{animation:dp-fade .18s ease-out}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.project-card:hover,.h6-qa:hover,.space-tile:hover{transform:none}}
+
+/* Tareas: filtros por estado y prioridad, urgentes arriba y orden a mano. */
+.bd-filters{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:14px}
+.bd-states{max-width:100%;overflow-x:auto;scrollbar-width:none}
+.bd-states button{white-space:nowrap}
+.bd-states small{font-size:12px;opacity:.7}
+.bd-pf{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:5px 11px;border:1px solid var(--c-n200);border-radius:var(--r-full);background:var(--c-n0);color:var(--c-n600);font:inherit;font-size:13px;font-weight:650;cursor:pointer}
+.bd-pf small{font-size:12px;color:var(--c-n500)}
+.bd-pf:hover{border-color:var(--pc)}
+.bd-pf.active{border-color:var(--pc);box-shadow:inset 0 0 0 1px var(--pc);color:var(--c-n900)}
+.bd-board.solo{grid-template-columns:minmax(0,760px);overflow:visible}
+.bd-card.drop-before{box-shadow:0 -3px 0 0 var(--c-i500),var(--sh-sm)}
+.bd-list.drop-end::after{content:'';display:block;height:3px;border-radius:var(--r-full);background:var(--c-i500)}
+.bd-btns .icon-btn:disabled{opacity:.3;cursor:default}
+.bd-who{white-space:nowrap;min-width:0}
+.bd-foot .bd-btns{flex:0 0 auto}
+.bd-btns .icon-btn{width:24px}
+@media(max-width:700px){.bd-btns .icon-btn{width:32px;height:32px}}

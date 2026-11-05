@@ -5,18 +5,22 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const raiz = fileURLToPath(new URL('..', import.meta.url));
+// Arrastre real con el ratón (Prueba uno/dos/tres las crea el guion tablero.js).
+const tarjeta = t => `article.bd-card:has-text("${t}")`;
+const arrastres = [['Prueba tres', 'Prueba dos'], ['Prueba uno', 'Prueba parada'], ['Prueba dos', 'Prueba urgente']].flatMap(([a, b]) => ['--clic', `drag:${tarjeta(a)}=>${tarjeta(b)}`]);
 const casos = [
   ['menu-y-foco', '390,1440'],
   ['direcciones', '390,1440'],
   ['deshacer', '1440'],
   ['panel-movil', '390'],
   ['errores', '1440'],
+  ['tablero', '1440', [...arrastres, '--tras', readFileSync(new URL('../tests/navegador/tablero-tras.js', import.meta.url), 'utf8')]],
 ];
 let fallos = 0;
-for (const [nombre, anchos] of casos) {
+for (const [nombre, anchos, extra = []] of casos) {
   const js = readFileSync(new URL(`../tests/navegador/${nombre}.js`, import.meta.url), 'utf8');
   const t0 = Date.now();
-  const r = spawnSync(process.execPath, ['scripts/captura.mjs', '--datos', '--solo-vista', '--nombre', 'nav-' + nombre, '--anchos', anchos, '--eval', js], { cwd: raiz, encoding: 'utf8', timeout: 240000 });
+  const r = spawnSync(process.execPath, ['scripts/captura.mjs', '--datos', '--solo-vista', '--nombre', 'nav-' + nombre, '--anchos', anchos, '--eval', js, ...extra], { cwd: raiz, encoding: 'utf8', timeout: 240000 });
   const ok = r.status === 0;
   if (!ok) fallos++;
   console.log(`${ok ? '✔' : '✖'} navegador: ${nombre} (${anchos}) ${Math.round((Date.now() - t0) / 1000)} s`);

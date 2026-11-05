@@ -113,10 +113,11 @@ try {
     for (let i = 0, n = Number(args[args.indexOf('--recargar') + 1]) || 0; args.includes('--recargar') && i < n; i++) { await page.evaluate(() => navigator.serviceWorker?.ready); await page.reload({ waitUntil: 'networkidle' }); }
     if (args.includes('--sin-red')) { await page.evaluate(() => navigator.serviceWorker.ready); await page.reload({ waitUntil: 'networkidle' }); await ctx.setOffline(true); await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForTimeout(2500); }
     for (const js of args.flatMap((a, i) => a === "--eval" ? [args[i + 1]] : [])) await page.evaluate(js);
-    for (const sel of clics) { if (sel.startsWith("file:")) { const k = sel.lastIndexOf("="); await page.setInputFiles(sel.slice(5, k), sel.slice(k + 1)); await page.waitForTimeout(1500); continue; } if (sel.startsWith("fill:")) { const k = sel.lastIndexOf("="); await page.fill(sel.slice(5, k), sel.slice(k + 1)); continue; } await page.click(sel, { timeout: 5000 }); await page.waitForTimeout(400); }
+    for (const sel of clics) { if (sel.startsWith("drag:")) { const [de, a] = sel.slice(5).split("=>"); await page.dragAndDrop(de, a, { targetPosition: { x: 30, y: 3 }, timeout: 5000 }); await page.waitForTimeout(900); continue; } if (sel.startsWith("file:")) { const k = sel.lastIndexOf("="); await page.setInputFiles(sel.slice(5, k), sel.slice(k + 1)); await page.waitForTimeout(1500); continue; } if (sel.startsWith("fill:")) { const k = sel.lastIndexOf("="); await page.fill(sel.slice(5, k), sel.slice(k + 1)); continue; } await page.click(sel, { timeout: 5000 }); await page.waitForTimeout(400); }
     if (teclear) { await page.keyboard.type(teclear); await page.keyboard.press('Enter'); await page.waitForTimeout(800); }
     if (esperar) await page.waitForSelector(esperar, { timeout: 90000 });
     if (descargar) { const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click(descargar)]); const f = fileURLToPath(new URL(`${nombre}-${ancho}-${dl.suggestedFilename().replace(/[^\w.-]+/g, '_')}`, outDir)); await dl.saveAs(f); console.log('DESCARGA', f); }
+    for (const js of args.flatMap((a, i) => a === "--tras" ? [args[i + 1]] : [])) await page.evaluate(js);
     await page.waitForTimeout(300);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     if (overflow > 1) problemas.push(`[${ancho}] desbordamiento horizontal de ${overflow}px`);

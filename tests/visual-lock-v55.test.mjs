@@ -26,7 +26,7 @@ const files=[
  ],
  [
   "edge/public/index.html",
-  "b5c48212d8b01895f06d5db341853674a527f0c4b519b43a78a50e5faeba22f1"
+  "44af78538c64cae0bd0668d919a6b13f430167e5be462c505cb1f0fe425985b5"
  ],
  [
   "edge/public/manifest.webmanifest",
