@@ -40,6 +40,25 @@ try {
 New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 $file = Join-Path $BackupDir ('DUPLA_ANTES_DESPLIEGUE_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.json')
 Invoke-WebRequest -Uri "$Url/api/snapshot" -WebSession $session -Headers @{Origin=$Url} -TimeoutSec 180 -OutFile $file -UseBasicParsing | Out-Null
+# Con muchas fotos, lo que no cabe en la respuesta se baja archivo a archivo y se une en la misma copia.
+$json = [IO.File]::ReadAllText($file, [Text.Encoding]::UTF8)
+$cola = $json.LastIndexOf(',"pending_files":[')
+if ($cola -gt 0) {
+    $nombres = @($json.Substring($cola + 18).TrimEnd(']', '}', ' ').Replace('"', '').Split(',') | Where-Object { $_ })
+    if ($nombres.Count) {
+        $trozos = New-Object System.Text.StringBuilder
+        $vacio = $json.Substring(0, $cola).EndsWith('"files":[]')
+        foreach ($n in $nombres) {
+            $r = Invoke-WebRequest -Uri "$Url/api/snapshot/file/$n" -WebSession $session -Headers @{Origin=$Url} -TimeoutSec 60 -UseBasicParsing
+            if ($trozos.Length -or -not $vacio) { [void]$trozos.Append(',') }
+            [void]$trozos.Append($r.Content)
+        }
+        $base = $json.Substring(0, $cola); $base = $base.Substring(0, $base.Length - 1)
+        $json = $base + $trozos.ToString() + '],"pending_files":[]}'
+        [IO.File]::WriteAllText($file, $json, (New-Object Text.UTF8Encoding $false))
+    }
+}
+$json = $null
 $snap = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($snap.format -ne 'dos-espacios-edge-v1' -or $snap.users.Count -ne 2 -or $null -eq $snap.data.projects -or $null -eq $snap.files) {
     Remove-Item -LiteralPath $file -Force

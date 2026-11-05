@@ -58,8 +58,8 @@ function validDate(value){
 }
 function sha(token){return createHash('sha256').update(token).digest('hex');}
 // DUPLA 6: tablas y archivos extra que deben viajar en la copia completa.
-const V6_TABLES=['agent_memory','shared_settings','user_prefs','connections','calendar_marks','trip_days','couple_items','project_quotes','meetings','meeting_segments','director_states','board_tasks','dest_notes','task_notes',...FIN_TABLES];
-function v6Files(data){const out=[...(data.projects||[]).map(p=>p.cover_file),...(data.task_notes||[]).map(n=>n.stored_name)].filter(Boolean);const av=(data.shared_settings||[]).find(r=>r.key==='dupla_avatar');if(av){try{out.push(JSON.parse(av.value));}catch{}}return out.filter(n=>typeof n==='string'&&/^[a-f0-9-]{36}$/.test(n));}
+const V6_TABLES=['agent_memory','shared_settings','user_prefs','connections','calendar_marks','trip_days','couple_items','couple_lists','couple_list_items','project_quotes','meetings','meeting_segments','director_states','board_tasks','dest_notes','task_notes',...FIN_TABLES];
+function v6Files(data){const out=[...(data.projects||[]).map(p=>p.cover_file),...(data.task_notes||[]).map(n=>n.stored_name),...(data.couple_items||[]).map(n=>n.photo),...(data.couple_list_items||[]).map(n=>n.photo)].filter(Boolean);const av=(data.shared_settings||[]).find(r=>r.key==='dupla_avatar');if(av){try{out.push(JSON.parse(av.value));}catch{}}return out.filter(n=>typeof n==='string'&&/^[a-f0-9-]{36}$/.test(n));}
 // Nombre legible del dispositivo para «Sesiones activas» (solo sistema y navegador, nada identificable).
 function deviceName(ua=''){ua=String(ua);const os=/iPhone/.test(ua)?'iPhone':/iPad/.test(ua)?'iPad':/Android/.test(ua)?'Android':/Windows/.test(ua)?'Windows':/Mac OS X|Macintosh/.test(ua)?'Mac':/Linux/.test(ua)?'Linux':'Dispositivo';const br=/Edg\//.test(ua)?'Edge':/OPR\//.test(ua)?'Opera':/Firefox\//.test(ua)?'Firefox':/CriOS|Chrome\//.test(ua)?'Chrome':/Safari\//.test(ua)?'Safari':'Navegador';return `${os} · ${br}`;}
 function userFromReq(req){const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('dos_session='));if(!cookie)return null;const token=cookie.slice(12);if(!/^[a-f0-9]{64}$/.test(token))return null;return get(`SELECT users.id,users.name,users.email,sessions.token_hash FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?`,sha(token),now())||null;}
@@ -376,7 +376,7 @@ async function driveToken(row){const t=await decryptToken(env,row.encrypted_toke
 async function driveFetch(tok,path,opts={}){const r=await fetch(DRIVE+path,{...opts,headers:{Authorization:'Bearer '+tok,...(opts.headers||{})},signal:AbortSignal.timeout(60000)});if(!r.ok){const t=await r.text().catch(()=>'');const ex=Error(`Google Drive ${r.status}: ${t.slice(0,160)}`);ex.statusCode=r.status;throw ex;}return r;}
 function backupSnapshot(){const skip=new Set(['sessions','webauthn_challenges','upload_chunks','place_cache','google_oauth_states','google_connections','google_personal','drive_backup','api_tokens','sqlite_sequence','_cf_KV','_cf_METADATA']);
  const tables=all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").map(x=>x.name).filter(t=>!skip.has(t)&&/^[a-z_0-9]+$/.test(t)),data=Object.fromEntries(tables.map(t=>[t,all(`SELECT * FROM ${t}`)]));
- const files={},total=(data.assets||[]).reduce((n,a)=>n+Number(a.size||0),0),withFiles=total<=15*1024*1024;if(withFiles)for(const a of data.assets||[])try{files[a.stored_name]=Buffer.from(readFile(a.stored_name)).toString('base64');}catch{}
+ const files={};let total=0,withFiles=true;for(const name of new Set([...(data.assets||[]).map(a=>a.stored_name),...v6Files(data)]))try{const raw=Buffer.from(readFile(name));if(total+raw.length>15*1024*1024){withFiles=false;continue;}total+=raw.length;files[name]=raw.toString('base64');}catch{}
  return {format:'dupla-backup-1',created_at:now(),counts:Object.fromEntries(tables.map(t=>[t,data[t].length])),files_included:withFiles,data,files};}
 async function processDriveBackup(force=false){const row=get("SELECT * FROM drive_backup WHERE id='main'");if(!row)return {enabled:false};
  if(!force&&row.last_at&&Date.now()-Date.parse(row.last_at)<7*864e5-3600e3)return {enabled:true,created:false};
@@ -855,18 +855,22 @@ async function api(req,res,url){
   const tables=['projects','tasks','sections','events','comments','links','assets','milestones','expenses','checklist_items','activities','ideas','section_versions','decisions','decision_votes','knowledge','audit_events','notifications','reminder_sent','integration_runs','work_deliverables','time_entries','trip_stops','automation_rules','automation_executions','brief_imports'];
   const data=Object.fromEntries(tables.map(t=>[t,all(`SELECT * FROM ${t}`)]));
   for(const t of V6_TABLES)data[t]=all(`SELECT * FROM ${t}`);
-  const files=[];let total=0;
+  const files=[],pending=[];let total=0;
   // Adjuntos + portadas de proyecto + avatar de Dupla (DUPLA 6): todo lo que vive en upload_chunks.
   for(const name of [...data.assets.map(a=>a.stored_name),...v6Files(data)]){
    if(!fileExists(name))continue;
-   const file=readFile(name);total+=file.length;
-   if(total>18*1024*1024)fail(413,'Los archivos son demasiado grandes para una exportación web. Utiliza la restauración por puntos de Cloudflare o exporta archivos por separado.');
+   // Lo que no cabe en una respuesta se pide después archivo a archivo (/api/snapshot/file/ID): la copia nunca falla por tener muchas fotos.
+   const file=readFile(name);if(total+file.length>18*1024*1024){pending.push(name);continue;}total+=file.length;
    files.push({stored_name:name,base64:file.toString('base64')});
   }
   const metadata=all('SELECT id,name,email,created_at FROM users');
   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','Content-Disposition':'attachment; filename="dos-espacios-copia-completa.json"'});
-  res.end(JSON.stringify({format:'dos-espacios-edge-v1',exported_at:now(),users:metadata,data,files}));return;
+  res.end(JSON.stringify({format:'dos-espacios-edge-v1',exported_at:now(),users:metadata,data,files,pending_files:pending}));return;
  }
+ const snapFile=path.match(/^\/api\/snapshot\/file\/([a-f0-9-]{36})$/);
+ if(snapFile&&req.method==='GET'){const known=get('SELECT 1 FROM assets WHERE stored_name=?',snapFile[1])||get('SELECT 1 FROM couple_items WHERE photo=?',snapFile[1])||get('SELECT 1 FROM couple_list_items WHERE photo=?',snapFile[1])||get('SELECT 1 FROM task_notes WHERE stored_name=?',snapFile[1])||get('SELECT 1 FROM projects WHERE cover_file=?',snapFile[1]);if(!known||!fileExists(snapFile[1]))fail(404,'Archivo no encontrado');respond(res,200,{stored_name:snapFile[1],base64:readFile(snapFile[1]).toString('base64')});return;}
+ // Restaurar copias grandes: primero se sube cada archivo y luego la copia sin sus bytes (staged_files).
+ if(path==='/api/snapshot/stage-file'&&req.method==='POST'){const b=await readBody(req);if(b.confirmation!=='RESTAURAR DUPLA')fail(400,'Escribe RESTAURAR DUPLA para confirmar');if(!await verifyPassword(String(b.password||''),get('SELECT password_hash FROM users WHERE id=?',u.id).password_hash))fail(403,'Contraseña actual incorrecta');if(typeof b.stored_name!=='string'||!/^[a-f0-9-]{36}$/.test(b.stored_name)||typeof b.base64!=='string'||!/^[a-zA-Z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Adjunto inválido');const raw=Buffer.from(b.base64,'base64');if(!raw.length||raw.length>6*1024*1024)fail(413,'Adjunto inválido o demasiado grande');if(!fileExists(b.stored_name))saveFile(b.stored_name,raw);respond(res,200,{ok:true});return;}
  // Explicit, password-confirmed restore. Users, login credentials, sessions, secrets and DO identity are never overwritten.
  if((path==='/api/snapshot/restore'||path==='/api/backups/restore')&&req.method==='POST'){
   const b=await readBody(req);
@@ -916,7 +920,8 @@ async function api(req,res,url){
    files.set(file.stored_name,raw);bytes+=raw.length;
    if(bytes>(fromR2?36:6)*1024*1024)fail(413,fromR2?'Los adjuntos exceden los 36 MiB de la copia R2':'Esta copia requiere restauración externa. Máximo 6 MB en restauración web.');
   }
-  for(const asset of data.assets||[]){if(!files.has(asset.stored_name)||files.get(asset.stored_name).length!==asset.size)fail(400,'Falta un archivo adjunto o su tamaño no coincide');}
+  const staged=new Set(Array.isArray(snapshot.staged_files)?snapshot.staged_files.filter(n=>typeof n==='string'&&/^[a-f0-9-]{36}$/.test(n)&&fileExists(n)):[]);
+  for(const asset of data.assets||[]){if(staged.has(asset.stored_name))continue;if(!files.has(asset.stored_name)||files.get(asset.stored_name).length!==asset.size)fail(400,'Falta un archivo adjunto o su tamaño no coincide');}
   const expected=new Set([...(data.assets||[]).map(a=>a.stored_name),...v6Files(data)]);
   for(const name of files.keys())if(!expected.has(name))fail(400,'La copia contiene adjuntos inesperados');
   const deletion=['brief_imports','automation_executions','automation_rules','time_entries','work_deliverables','trip_stops','reminder_sent','integration_runs','notifications','decision_votes','checklist_items','section_versions','assets','expenses','milestones','links','comments','events','sections','tasks','decisions','ideas','knowledge','activities','audit_events','projects'];
@@ -927,7 +932,7 @@ async function api(req,res,url){
    for(const t of V6_TABLES)if(snapshot.data?.[t])run('DELETE FROM '+t);
    // Old webhook events must not be delivered after restoring a historical snapshot.
    run('DELETE FROM webhook_outbox');
-   run('DELETE FROM upload_chunks');
+   if(staged.size)run('DELETE FROM upload_chunks WHERE name NOT IN (SELECT value FROM json_each(?))',JSON.stringify([...staged]));else run('DELETE FROM upload_chunks');
    for(const item of prepared){
     const placeholders=item.keys.map(()=>'?').join(',');
     run('INSERT INTO '+item.table+'('+item.keys.join(',')+') VALUES('+placeholders+')',...item.values);
@@ -939,7 +944,7 @@ async function api(req,res,url){
    const bad=all('PRAGMA foreign_key_check');if(bad.length)fail(409,'Referencias de datos inconsistentes; se ha cancelado la restauración');
   });}catch(error){if(/FOREIGN KEY|constraint|CHECK/i.test(String(error.message)))fail(409,'La copia contiene referencias o datos incoherentes; ningún dato ha sido sustituido');throw error;}
   notify('all',null,u.id);
-  respond(res,200,{ok:true,restored_records:count,restored_files:files.size});return;
+  respond(res,200,{ok:true,restored_records:count,restored_files:files.size+staged.size});return;
  }
  // Project operations: only authenticated members, no external credentials in the browser.
  const op=path.match(/^\/api\/projects\/([a-f0-9-]{36})\/operations(?:\/(deliverables|hours|itinerary|automations|run|brief|days))?(?:\/([a-f0-9-]{36}))?$/);
@@ -1450,7 +1455,7 @@ async function api(req,res,url){
   }
   if(kind==='expenses'){
    const payer=b.paid_by?get('SELECT id FROM users WHERE id=?',String(b.paid_by))?.id||fail(400,'Persona no válida'):null;
-   run('INSERT INTO expenses(id,project_id,title,category,estimated,actual,booked_at,paid_by,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',id,p.id,requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],'general'),money(b.estimated),money(b.actual),validDate(b.booked_at),payer,u.id,t,t);
+   run('INSERT INTO expenses(id,project_id,title,category,estimated,actual,booked_at,paid_by,for_user,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',id,p.id,requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],'general'),money(b.estimated),money(b.actual),validDate(b.booked_at),payer,b.for_user?get('SELECT id FROM users WHERE id=?',String(b.for_user))?.id||fail(400,'Persona no válida'):null,u.id,t,t);
    logChange(p,u,'añadió un gasto',b.title);respond(res,201,{item:get('SELECT * FROM expenses WHERE id=?',id)});return;
   }
   if(kind==='tasks'){
@@ -1487,7 +1492,7 @@ async function api(req,res,url){
    if(signatures[mime]&&!signatures[mime](file))fail(415,'El contenido no coincide con el tipo de archivo declarado');
    const storedName=uid();saveFile(storedName,file);
    run('INSERT INTO assets VALUES(?,?,?,?,?,?,?,?)',id,p.id,name,mime,file.length,storedName,u.id,t);
-   logChange(p,u,'adjuntó un archivo',name);respond(res,201,{ok:true});return;
+   if(!b.quiet)logChange(p,u,b.photos>1?`subió ${Math.min(99,Number(b.photos)|0)} fotos`:'adjuntó un archivo',b.photos>1?p.title:name);respond(res,201,{ok:true});return;
   }
   if(kind==='ai'){
    if(p.space!=='work')fail(403,'La IA está disponible solamente para Trabajo');
@@ -1511,7 +1516,7 @@ async function api(req,res,url){
   if(kind==='assets'&&req.method==='GET'){
    if(!fileExists(row.stored_name))fail(404,'Archivo no encontrado');
    const inline=['image/png','image/jpeg','image/webp','image/gif'].includes(row.mime);const safeName=row.name.replace(/["\\\r\n]/g,'_');
-   res.writeHead(200,{'Content-Type':inline?row.mime:'application/octet-stream','Content-Disposition':`${inline?'inline':'attachment'}; filename*=UTF-8''${encodeURIComponent(safeName)}`,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'});res.end(readFile(row.stored_name));return;
+   res.writeHead(200,{'Content-Type':inline?row.mime:'application/octet-stream','Content-Disposition':`${inline?'inline':'attachment'}; filename*=UTF-8''${encodeURIComponent(safeName)}`,'X-Content-Type-Options':'nosniff','Cache-Control':inline?'private, max-age=604800':'private, no-store'});res.end(readFile(row.stored_name));return;
   }
   if(req.method==='DELETE'){
    const noteFiles=kind==='tasks'?all('SELECT stored_name FROM task_notes WHERE task_id=? AND stored_name IS NOT NULL',row.id):[];
@@ -1525,7 +1530,7 @@ async function api(req,res,url){
    logChange(p,u,'editó un hito',b.title||row.title);respond(res,200,{ok:true});return;
   }
   if(req.method==='PATCH'&&kind==='expenses'){
-   const b=await readBody(req);requireRevision(b,row);const payer=b.paid_by===undefined?row.paid_by:b.paid_by?get('SELECT id FROM users WHERE id=?',String(b.paid_by))?.id||fail(400,'Persona no válida'):null;const changed=run('UPDATE expenses SET paid_by=?,booked_at=?,title=?,category=?,estimated=?,actual=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?',payer,b.booked_at===undefined?row.booked_at:validDate(b.booked_at),b.title===undefined?row.title:requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],row.category),b.estimated===undefined?row.estimated:money(b.estimated),b.actual===undefined?row.actual:money(b.actual),now(),row.id,row.revision);if(!changed.changes)fail(409,'Gasto modificado por otra persona');
+   const b=await readBody(req);requireRevision(b,row);const payer=b.paid_by===undefined?row.paid_by:b.paid_by?get('SELECT id FROM users WHERE id=?',String(b.paid_by))?.id||fail(400,'Persona no válida'):null;const forUser=b.for_user===undefined?row.for_user:b.for_user?get('SELECT id FROM users WHERE id=?',String(b.for_user))?.id||fail(400,'Persona no válida'):null;const changed=run('UPDATE expenses SET paid_by=?,for_user=?,booked_at=?,title=?,category=?,estimated=?,actual=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?',payer,forUser,b.booked_at===undefined?row.booked_at:validDate(b.booked_at),b.title===undefined?row.title:requireText(b.title,'Concepto',160),choice(b.category,['general','design','development','marketing','flights','stay','transport','food','outings','activities','shopping','extras','other'],row.category),b.estimated===undefined?row.estimated:money(b.estimated),b.actual===undefined?row.actual:money(b.actual),now(),row.id,row.revision);if(!changed.changes)fail(409,'Gasto modificado por otra persona');
    logChange(p,u,'editó un gasto',b.title||row.title);respond(res,200,{ok:true});return;
   }
   if(req.method==='PATCH'&&kind==='tasks'){

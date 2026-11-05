@@ -9,6 +9,8 @@ const lastDay=k=>{const [y,m]=k.split('-').map(Number);return k+'-'+String(new D
 const r2=n=>Math.round(n*100)/100;
 // Gastos de los proyectos con su categoría de Finanzas. Reparto: half=a medias, payer=solo de quien paga, other=todo del otro, pNN=quien paga asume el NN %.
 const PCAT="CASE e.category WHEN 'food' THEN 'comida' WHEN 'flights' THEN 'transporte' WHEN 'transport' THEN 'transporte' WHEN 'design' THEN 'trabajo' WHEN 'development' THEN 'trabajo' WHEN 'marketing' THEN 'trabajo' ELSE 'ocio' END";
+// Gastos de plan: «para quién es» (vacío = a medias) se traduce al mismo reparto.
+const PSPLIT="CASE WHEN e.for_user IS NULL THEN 'half' WHEN e.for_user=e.paid_by THEN 'payer' ELSE 'other' END";
 const SPLIT=/^(half|payer|other|p[1-9]\d?)$/,share=s=>s==='payer'?1:s==='other'?0:/^p\d/.test(s||'')?Number(s.slice(1))/100:0.5;
 export function addMonth(date){const [y,m,d]=date.split('-').map(Number),t=new Date(Date.UTC(y,m,1)),max=new Date(Date.UTC(y,m+1,0)).getUTCDate();return `${t.getUTCFullYear()}-${String(t.getUTCMonth()+1).padStart(2,'0')}-${String(Math.min(d,max)).padStart(2,'0')}`;}
 
@@ -17,7 +19,7 @@ export function createFinanzas(d){
  const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  // Movimientos propios + gastos reales de los proyectos (solo lectura aquí: se editan en su proyecto).
  const moves=(from,to)=>[...all('SELECT m.*,us.name AS who FROM fin_moves m LEFT JOIN users us ON us.id=m.paid_by WHERE m.date BETWEEN ? AND ?',from,to),
-  ...all(`SELECT e.id,'out' AS kind,e.actual AS amount,${PCAT} AS category,p.title||' · '||e.title AS title,substr(COALESCE(e.booked_at,e.created_at),1,10) AS date,e.paid_by,us.name AS who,p.id AS project_id FROM expenses e JOIN projects p ON p.id=e.project_id LEFT JOIN users us ON us.id=e.paid_by WHERE p.deleted_at IS NULL AND e.actual>0 AND substr(COALESCE(e.booked_at,e.created_at),1,10) BETWEEN ? AND ?`,from,to)];
+  ...all(`SELECT e.id,'out' AS kind,e.actual AS amount,${PCAT} AS category,p.title||' · '||e.title AS title,substr(COALESCE(e.booked_at,e.created_at),1,10) AS date,e.paid_by,e.for_user,${PSPLIT} AS split,us.name AS who,p.id AS project_id FROM expenses e JOIN projects p ON p.id=e.project_id LEFT JOIN users us ON us.id=e.paid_by WHERE p.deleted_at IS NULL AND e.actual>0 AND substr(COALESCE(e.booked_at,e.created_at),1,10) BETWEEN ? AND ?`,from,to)];
  const sum=(xs,k)=>r2(xs.filter(x=>x.kind===k).reduce((a,x)=>a+Number(x.amount||0),0));
  function periods(period,t){const y=+t.slice(0,4),m=+t.slice(5,7)-1;
   if(period==='year')return {from:`${y}-01-01`,to:`${y}-12-31`,prev:[`${y-1}-01-01`,`${y-1}-12-31`],months:12,label:String(y),vs:String(y-1),
@@ -36,7 +38,7 @@ export function createFinanzas(d){
    kpis:{income,expense,saving:r2(income-expense),saving_pct:income>0?Math.round((income-expense)/income*100):null,income_prev:sum(prev,'in'),expense_prev:sum(prev,'out'),bills_pending:bills.length,bill_next:bills[0]?.due_date||null},
    series:p.series.map(s=>{const xs=moves(s.from,s.to);return {label:s.label,current:s.current,income:sum(xs,'in'),expense:sum(xs,'out')};}),
    budgets:OUT.map(c=>({category:c,label:FIN_CATS[c][0],color:FIN_CATS[c][1],limit:limits[c]?r2(limits[c]*p.months):0,monthly:limits[c]||0,spent:r2(cur.filter(x=>x.kind==='out'&&x.category===c).reduce((a,x)=>a+Number(x.amount),0))})).filter(b=>b.limit||b.spent),
-   goals:all('SELECT * FROM fin_goals ORDER BY created_at'),bills,recent,cats:FIN_CATS,icons:ICONS};}
+   goals:all('SELECT * FROM fin_goals ORDER BY created_at'),bills,recent,debts:debts(),cats:FIN_CATS,icons:ICONS};}
  function moveFields(b,prev={}){const kind=b.kind===undefined?prev.kind:choice(b.kind,['in','out']);
   return {kind,amount:b.amount===undefined?prev.amount:(money(b.amount)||fail(400,'El importe tiene que ser mayor que 0')),category:kind==='in'?'ingreso':choice(b.category===undefined?(prev.category==='ingreso'?'otros':prev.category):b.category,OUT),
    title:b.title===undefined?prev.title:requireText(b.title,'Concepto',160),date:b.date===undefined?prev.date:(validDate(b.date)||fail(400,'Pon la fecha')),
@@ -45,17 +47,23 @@ export function createFinanzas(d){
    split:b.split===undefined?(prev.split||'half'):(SPLIT.test(String(b.split))?String(b.split):fail(400,'Reparto no válido'))};}
  // ---- Carpetas (tipo Tricount) ----
  function groupItems(g){const own=all('SELECT m.*,us.name AS who FROM fin_moves m LEFT JOIN users us ON us.id=m.paid_by WHERE m.group_id=?',g.id);
-  const proj=g.project_id?all(`SELECT e.id,'out' AS kind,e.actual AS amount,${PCAT} AS category,e.title,substr(COALESCE(e.booked_at,e.created_at),1,10) AS date,e.paid_by,us.name AS who,'half' AS split,e.project_id,e.created_at FROM expenses e JOIN projects p ON p.id=e.project_id LEFT JOIN users us ON us.id=e.paid_by WHERE p.id=? AND p.deleted_at IS NULL AND e.actual>0`,g.project_id):[];
+  const proj=g.project_id?projRows(g.project_id):[];
   return [...own,...proj].sort((a,b)=>(b.date+(b.created_at||'')).localeCompare(a.date+(a.created_at||'')));}
+ const projRows=id=>all(`SELECT e.id,'out' AS kind,e.actual AS amount,${PCAT} AS category,e.title,substr(COALESCE(e.booked_at,e.created_at),1,10) AS date,e.paid_by,us.name AS who,${PSPLIT} AS split,e.for_user,e.project_id,e.created_at FROM expenses e JOIN projects p ON p.id=e.project_id LEFT JOIN users us ON us.id=e.paid_by WHERE p.id=? AND p.deleted_at IS NULL AND e.actual>0`,id);
  function balance(items,settles){const users=all('SELECT id,name FROM users ORDER BY name'),ids=users.map(x=>x.id),z=()=>Object.fromEntries(ids.map(i=>[i,0])),paid=z(),cons=z(),net=z(),cats={},days={};let total=0,common=0;
   for(const x of items){if(x.kind!=='out')continue;const a=Number(x.amount)||0,p=x.paid_by;total+=a;cats[x.category]=(cats[x.category]||0)+a;days[x.date]=(days[x.date]||0)+a;
-   if(!p||!(p in paid)){common+=a;for(const i of ids)cons[i]+=a/ids.length;continue;}
+   if(!p||!(p in paid)){common+=a;if(x.for_user in cons)cons[x.for_user]+=a;else for(const i of ids)cons[i]+=a/ids.length;continue;}
    const s=share(x.split),o=ids.find(i=>i!==p);paid[p]+=a;cons[p]+=a*s;if(o){cons[o]+=a*(1-s);net[p]+=a*(1-s);net[o]-=a*(1-s);}}
   for(const s of settles){if(s.from_user in net)net[s.from_user]+=s.amount;if(s.to_user in net)net[s.to_user]-=s.amount;}
   const d=r2(net[ids[0]]||0),owes=ids.length===2&&Math.abs(d)>=0.01?{from:d>0?ids[1]:ids[0],to:d>0?ids[0]:ids[1],amount:Math.abs(d)}:null;
   return {total:r2(total),common:r2(common),count:items.length,owes,settled:r2(settles.reduce((a,x)=>a+x.amount,0)),people:users.map(x=>({id:x.id,name:x.name,paid:r2(paid[x.id]),share:r2(cons[x.id]),net:r2(net[x.id])})),
    cats:Object.entries(cats).map(([k,v])=>({category:k,label:FIN_CATS[k]?.[0]||k,color:FIN_CATS[k]?.[1]||'#7d8597',amount:r2(v)})).sort((x,y)=>y.amount-x.amount),
    days:Object.entries(days).sort(([x],[y])=>x.localeCompare(y)).map(([date,amount])=>({date,amount:r2(amount)}))};}
+ // Lo que os debéis en total: carpetas (con sus pagos) y viajes o planes de pareja sin carpeta.
+ function debts(){const users=all('SELECT id FROM users ORDER BY name'),net=Object.fromEntries(users.map(x=>[x.id,0])),sources=[];let any=false;const add=(st,o)=>{any=true;for(const x of st.people)net[x.id]+=x.net;if(st.owes)sources.push({...o,owes:st.owes});};
+  for(const g of all('SELECT * FROM fin_groups'))add(balance(groupItems(g),settlesOf(g.id)),{kind:'group',id:g.id,title:g.title});
+  for(const p of all("SELECT p.id,p.title FROM projects p WHERE p.deleted_at IS NULL AND p.space='couple' AND p.id NOT IN (SELECT project_id FROM fin_groups WHERE project_id IS NOT NULL) AND EXISTS(SELECT 1 FROM expenses e WHERE e.project_id=p.id AND e.actual>0 AND e.paid_by IS NOT NULL)"))add(balance(projRows(p.id),[]),{kind:'project',id:p.id,title:p.title});
+  const a=users[0]?.id,b=users[1]?.id,d=r2(net[a]||0);return {owes:users.length===2&&Math.abs(d)>=0.01?{from:d>0?b:a,to:d>0?a:b,amount:Math.abs(d)}:null,sources:sources.sort((x,y)=>y.owes.amount-x.owes.amount).slice(0,5),any};}
  const groupRow=id=>get('SELECT g.*,p.title AS project_title FROM fin_groups g LEFT JOIN projects p ON p.id=g.project_id AND p.deleted_at IS NULL WHERE g.id=?',id);
  const settlesOf=id=>all('SELECT s.*,a.name AS from_name,b.name AS to_name FROM fin_settles s LEFT JOIN users a ON a.id=s.from_user LEFT JOIN users b ON b.id=s.to_user WHERE s.group_id=? ORDER BY s.date DESC,s.created_at DESC,s.rowid DESC',id);
  function groupDetail(id){const g=groupRow(id)||fail(404,'Carpeta no encontrada'),items=groupItems(g),settles=settlesOf(g.id);return {group:g,items,settles,stats:balance(items,settles)};}

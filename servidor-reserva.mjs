@@ -91,7 +91,8 @@ export async function startReserva({port=8790,host='127.0.0.1',dataFile=join(ROO
     if(!login.ok)throw Error('inicio de sesión HTTP '+login.status);
     const cookie=(login.headers.getSetCookie?.()||[]).map(c=>c.split(';')[0]).join('; ');
     const snap=await fetch(origin+'/api/snapshot',{headers:{Cookie:cookie},signal:AbortSignal.timeout(180000)});if(!snap.ok)throw Error('copia HTTP '+snap.status);
-    const r=await importSnapshot(storage,await snap.json(),cred);
+    const copy=await snap.json();for(const n of copy.pending_files||[]){const x=await fetch(origin+'/api/snapshot/file/'+n,{headers:{Cookie:cookie},signal:AbortSignal.timeout(60000)});if(!x.ok)throw Error('archivo HTTP '+x.status);copy.files.push(await x.json());}
+    const r=await importSnapshot(storage,copy,cred);
     fetch(origin+'/api/logout',{method:'POST',headers:{Cookie:cookie,Origin:origin}}).catch(()=>{});
     log(`Datos copiados desde ${new URL(origin).host}: ${r.rows} registros, ${r.files} archivos.`);notifyAll();return r;
    }catch(ex){log(`No se pudo copiar desde ${new URL(origin).host}: ${ex.message}`);}

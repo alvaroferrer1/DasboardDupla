@@ -907,3 +907,58 @@ test('Carpetas de gastos (tipo Tricount): reparto, quién debe a quién, saldar,
  // Entran en la copia completa.
  const snap=(await f.call('/api/snapshot','GET',undefined,a)).data;assert.ok(Array.isArray(snap.data.fin_groups)&&Array.isArray(snap.data.fin_settles));
 });
+
+test('Gastos de plan: «para quién es» decide quién debe; carpeta y Finanzas cuentan igual',async()=>{
+ const f=fixture();const a=await f.login();const [u1,u2]=f.db.prepare('SELECT id,name FROM users ORDER BY name').all();
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Madrid',template:'weekend'},a)).data.project;
+ const gasto=async(title,amount,paid_by,for_user)=>{const r=await f.call(`/api/projects/${p.id}/expenses`,'POST',{title,category:'stay',estimated:amount,actual:amount,paid_by,for_user},a);assert.equal(r.status,201);return f.db.prepare('SELECT id,revision FROM expenses WHERE title=?').get(title);};
+ // Yo pago mi hotel y es para mí: no se divide.
+ await gasto('Mi hotel',100,u1.id,u1.id);assert.equal((await f.call('/api/balance','GET',undefined,a)).data.owes,null);
+ // Ella me paga el hotel y es para mí: se lo debo todo.
+ await gasto('Hotel adelantado',80,u2.id,u1.id);assert.deepEqual((await f.call('/api/balance','GET',undefined,a)).data.owes,{from:u1.id,to:u2.id,amount:80});
+ // A medias: lo de siempre.
+ const c=await gasto('Cena',40,u2.id,'');assert.deepEqual((await f.call('/api/balance','GET',undefined,a)).data.owes,{from:u1.id,to:u2.id,amount:100});
+ assert.equal((await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'X',estimated:1,actual:1,for_user:'nadie'},a)).status,400);
+ const res=(await f.call('/api/finance','GET',undefined,a)).data;assert.deepEqual(res.debts.owes,{from:u1.id,to:u2.id,amount:100});assert.equal(res.debts.sources[0].title,'Madrid');
+ // Con carpeta del viaje sale lo mismo y saldar deja a cero.
+ const g=(await f.call('/api/finance/groups','POST',{project_id:p.id},a)).data;assert.deepEqual(g.stats.owes,{from:u1.id,to:u2.id,amount:100});assert.equal(g.items.find(x=>x.title==='Mi hotel').split,'payer');assert.equal(g.items.find(x=>x.title==='Hotel adelantado').split,'other');
+ assert.deepEqual((await f.call('/api/finance','GET',undefined,a)).data.debts.owes,{from:u1.id,to:u2.id,amount:100},'la carpeta no duplica la deuda');
+ await f.call(`/api/finance/groups/${g.group.id}/settle`,'POST',{},a);const tras=(await f.call('/api/finance','GET',undefined,a)).data.debts;assert.equal(tras.owes,null);assert.ok(tras.any);
+ // Editar: pasa a ser solo para quien pagó y vuelve «para los dos».
+ assert.equal((await f.call('/api/expenses/'+c.id,'PATCH',{for_user:u2.id,revision:c.revision},a)).status,200);assert.equal(f.db.prepare('SELECT for_user FROM expenses WHERE id=?').get(c.id).for_user,u2.id);
+ const c2=f.db.prepare('SELECT revision FROM expenses WHERE id=?').get(c.id);assert.equal((await f.call('/api/expenses/'+c.id,'PATCH',{for_user:'',revision:c2.revision},a)).status,200);assert.equal(f.db.prepare('SELECT for_user FROM expenses WHERE id=?').get(c.id).for_user,null);
+});
+
+test('Listas de pareja: cosas con nota y foto, progreso, álbum y copia completa con sus fotos',async()=>{
+ const f=fixture();const a=await f.login();
+ const l=(await f.call('/api/couple-lists','POST',{title:'20 cosas',goal:20},a)).data.list;assert.equal(l.goal,20);
+ const r=await f.call(`/api/couple-lists/${l.id}/items`,'POST',{titles:['Ver amanecer',' ','Cocinar']},a);assert.equal(r.status,201);assert.equal(r.data.ids.length,2);
+ assert.equal((await f.call(`/api/couple-lists/${l.id}/items`,'POST',{titles:[]},a)).status,400);
+ const [id]=r.data.ids;assert.equal((await f.call('/api/couple-lists/items/'+id,'PATCH',{done:true,note:'En Cádiz'},a)).status,200);
+ const b64=JPEG.toString('base64');assert.equal((await f.call(`/api/couple-lists/items/${id}/photo`,'POST',{base64:b64},a)).status,200);
+ assert.equal((await f.call(`/api/couple-lists/items/${id}/photo`,'POST',{base64:Buffer.from('<svg>').toString('base64')},a)).status,415);
+ const d=(await f.call('/api/couple-lists/'+l.id,'GET',undefined,a)).data;assert.equal(d.list.done_count,1);assert.equal(d.list.total,2);assert.equal(d.list.cover_item,id);assert.equal(d.items[0].note,'En Cádiz');assert.ok(d.items[0].done_at);
+ assert.equal((await f.call(`/api/couple-lists/items/${id}/photo`,'GET',undefined,a)).status,200);
+ const m=(await f.call('/api/couple-items','POST',{kind:'memory',title:'Recuerdo'},a)).data.item;assert.equal((await f.call(`/api/couple-items/${m.id}/photo`,'POST',{base64:b64},a)).status,200);
+ const al=(await f.call('/api/couple-album','GET',undefined,a)).data.items;assert.equal(al[0].source,'20 cosas');assert.equal(al[0].list_id,l.id);
+ const snap=(await f.call('/api/snapshot','GET',undefined,a)).data;assert.equal(snap.data.couple_list_items.length,2);const photos=[snap.data.couple_list_items.find(x=>x.photo).photo,snap.data.couple_items[0].photo];
+ for(const n of photos)assert.ok(snap.files.some(x=>x.stored_name===n),'la copia incluye la foto');
+ assert.equal((await f.call('/api/couple-lists/items/'+id,'PATCH',{done:false},a)).status,200);assert.equal(f.db.prepare('SELECT done_at FROM couple_list_items WHERE id=?').get(id).done_at,null);
+ assert.equal((await f.call('/api/couple-lists/'+l.id,'DELETE',undefined,a)).status,200);assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM couple_list_items').get().n,0);
+});
+
+test('Copia con muchas fotos: no falla por tamaño, se baja por partes y se restaura entera',async()=>{
+ const f=fixture();const a=await f.login();const p=(await f.call('/api/projects','POST',{space:'couple',title:'Álbum',template:'weekend'},a)).data.project;
+ const big=Buffer.concat([JPEG,Buffer.alloc(5*1024*1024,9)]);for(let i=0;i<5;i++)assert.equal((await f.call(`/api/projects/${p.id}/assets`,'POST',{name:`f${i}.jpg`,mime:'image/jpeg',base64:big.toString('base64')},a)).status,201);
+ const snap=(await f.call('/api/snapshot','GET',undefined,a)).data;assert.equal(snap.files.length+snap.pending_files.length,5);assert.ok(snap.pending_files.length>=1);
+ const one=(await f.call('/api/snapshot/file/'+snap.pending_files[0],'GET',undefined,a)).data;assert.equal(Buffer.from(one.base64,'base64').length,big.length);
+ assert.equal((await f.call('/api/snapshot/file/00000000-0000-0000-0000-000000000000','GET',undefined,a)).status,404);
+ const full=[...snap.files,...await Promise.all(snap.pending_files.map(async n=>(await f.call('/api/snapshot/file/'+n,'GET',undefined,a)).data))];
+ const pass={password:'clave-super-a-1234',confirmation:'RESTAURAR DUPLA'};
+ assert.equal((await f.call('/api/snapshot/stage-file','POST',{...full[0],password:'mala',confirmation:'RESTAURAR DUPLA'},a)).status,403);
+ // Pérdida total de los archivos: se suben uno a uno y la restauración los conserva.
+ f.db.exec('DELETE FROM upload_chunks');for(const x of full)assert.equal((await f.call('/api/snapshot/stage-file','POST',{...x,...pass},a)).status,200);
+ const r=await f.call('/api/snapshot/restore','POST',{snapshot:{...snap,files:[],pending_files:[],staged_files:full.map(x=>x.stored_name)},...pass},a);assert.equal(r.status,200,JSON.stringify(r.data));assert.equal(r.data.restored_files,5);
+ const id=f.db.prepare('SELECT id FROM assets LIMIT 1').get().id;const got=await f.call('/api/assets/'+id,'GET',undefined,a);assert.equal(got.status,200);assert.equal(got.data.length,big.length);
+ assert.equal((await f.call('/api/snapshot/restore','POST',{snapshot:{...snap,files:[],pending_files:[]},...pass},a)).status,400,'sin bytes ni archivos subidos se rechaza');
+});

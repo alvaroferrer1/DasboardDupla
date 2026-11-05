@@ -26,7 +26,7 @@ const files=[
  ],
  [
   "edge/public/index.html",
-  "44af78538c64cae0bd0668d919a6b13f430167e5be462c505cb1f0fe425985b5"
+  "f37b274f94da807240ef3bea07caaf4ef551ead65def3c4b0f7d9e10713d5138"
  ],
  [
   "edge/public/manifest.webmanifest",
@@ -72,7 +72,7 @@ const files=[
 test('DUPLA: identidad visual intacta; únicas variaciones de CSS responsive y caché',()=>{
  for(const [path,hash] of files){
   let bytes=readFileSync(new URL('../'+path,import.meta.url));
-  if(path==='edge/public/index.html')bytes=Buffer.from(bytes.toString().replaceAll(/v=(5\.[678]\.[01]|6\.\d+\.\d+)/g,'v=5.4.0'));
+  if(path==='edge/public/index.html')bytes=Buffer.from(bytes.toString().replaceAll(/v=(5\.[678]\.[01]|[67]\.\d+\.\d+)/g,'v=5.4.0'));
   if(path==='edge/public/manifest.webmanifest')bytes=Buffer.from(bytes.toString().replace('  "id": "/",\n',''));
   if(path==='edge/public/style.css')bytes=Buffer.from(bytes.toString().split('/* DUPLA 5.6: strictly layout/interaction safeguards; preserve existing visual palette. */')[0].slice(0,-1));
   const digest=createHash('sha256').update(bytes).digest('hex');
