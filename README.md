@@ -173,3 +173,12 @@ Modelo: `@cf/openai/gpt-oss-120b` en Workers AI, gratuito y sin claves externas.
 <sub>Proyecto privado de uso personal. No se aceptan contribuciones externas.</sub>
 
 </div>
+
+## Revisión y mejora con skills (noviembre de 2026)
+
+- **Diseño:** rediseño «Dos tintas» con los dos espacios al frente y tipografía Bricolage Grotesque.
+- **Accesibilidad:** contraste AA en modo claro y oscuro, foco visible con teclado y objetivos táctiles revisados en pantallas de 320 a 1920 píxeles.
+- **Robustez:** textos muy largos sin romper tarjetas ni filtros.
+- **SEO:** `noindex`, porque es una aplicación privada.
+
+Cada publicación se hace con `npm run publicar`, que prueba, copia los datos, guarda en git, despliega y verifica. `npm run deshacer` vuelve a la versión anterior sin tocar los datos.
