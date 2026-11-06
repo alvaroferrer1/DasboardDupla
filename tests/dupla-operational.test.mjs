@@ -38,14 +38,14 @@ test('DUPLA: dependencias, bloqueo, recurrencia, persistencia desde la otra cuen
  const [a,b]=await initialize();
  const project=await call('/api/projects','POST',{space:'work',title:'Trabajo operativo'},a);assert.equal(project.status,201);const id=project.data.project.id;
  const one=await call(`/api/projects/${id}/tasks`,'POST',{title:'Revisar requisitos'},a);assert.equal(one.status,201);const first=one.data.item.id;
- const two=await call(`/api/projects/${id}/tasks`,'POST',{title:'Publicar',blocked_by:first,recurrence:'weekly',due_date:'2026-11-05'},b);assert.equal(two.status,201,JSON.stringify(two.data));const second=two.data.item.id;
+ const two=await call(`/api/projects/${id}/tasks`,'POST',{title:'Publicar',blocked_by:first,recurrence:'weekly',due_date:'2099-11-05'},b);assert.equal(two.status,201,JSON.stringify(two.data));const second=two.data.item.id;
  assert.equal((await call('/api/tasks/'+second,'PATCH',{state:'done',revision:1},b)).status,409,'No completar si falta dependencia');
  assert.equal((await call('/api/tasks/'+first,'PATCH',{blocked_by:second,revision:1},a)).status,400,'Impedir ciclos');
  assert.equal((await call('/api/tasks/'+first,'PATCH',{state:'done',revision:1},a)).status,200);
  const complete=await call('/api/tasks/'+second,'PATCH',{state:'done',revision:1},b);assert.equal(complete.status,200,JSON.stringify(complete.data));assert(complete.data.next_task_id);
  const saved=(await call(`/api/projects/${id}`,'GET',undefined,a)).data.project;
  const next=saved.tasks.find(t=>t.id===complete.data.next_task_id);
- assert(next&&next.state==='todo'&&next.recurrence==='weekly'&&next.due_date==='2026-11-12');
+ assert(next&&next.state==='todo'&&next.recurrence==='weekly'&&next.due_date==='2099-11-12');
  assert.equal((await call('/api/tasks/'+second,'PATCH',{state:'done',revision:1},a)).status,409,'Conflicto concurrente no duplica recurrencia');
  assert.equal((await call(`/api/projects/${id}`,'GET',undefined,b)).data.project.tasks.length,3);
  const deleted=await call('/api/tasks/'+first,'DELETE',undefined,a);assert.equal(deleted.status,200);assert.equal((await call(`/api/projects/${id}`,'GET',undefined,b)).data.project.tasks.find(t=>t.id===second).blocked_by,null);
