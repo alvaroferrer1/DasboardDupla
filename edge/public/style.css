@@ -1557,3 +1557,43 @@ h1,h2,h3,.kpi b,.fk-v{font-family:var(--dt-display);letter-spacing:-.02em}
 @media(max-width:600px){.action-entry>:nth-child(2){flex:1 1 calc(100% - 46px);min-width:0}.action-entry>:nth-child(3){margin-left:43px}}
 .act-row>*{min-width:0}.act-where,.act-who,.act-what{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal}.act-where *{min-width:0;overflow-wrap:anywhere}
 :root[data-theme="dark"] .content{--c-p700:#f3a9bb;--c-r700:#f3a9bb;--c-i400:#b9c1f5}
+
+/* Agente Dupla: detener, reintentar y detalle de la propuesta (ax-audit) */
+.dp-send.dp-stop{background:var(--c-r400,#c0392b);color:#fff}
+.dp-stop i{display:block;width:13px;height:13px;border-radius:3px;background:currentColor}
+.dupla-prop-det{color:var(--v6-muted);font-size:12px;overflow-wrap:anywhere;margin-top:2px}
+.dupla-prop.running{opacity:.7}.dupla-prop.running .dupla-prop-ic{animation:duplaDot 1s infinite}
+.dupla-warn{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:var(--v6-muted)}
+
+/* Movimiento y objetivos táctiles (ui-animation, ui-verification) */
+button,a,[role=button],input,select,textarea,label{touch-action:manipulation}
+[data-theme-switching="1"] *,[data-theme-switching="1"] *::before,[data-theme-switching="1"] *::after{transition:none!important}
+@keyframes modal-in{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+@media(min-width:601px){body .modal-card{animation:modal-in .18s cubic-bezier(.22,1,.36,1)}}
+@media(prefers-reduced-motion:reduce){body .modal-card{animation:none}}
+.h6-link,.back-link,.link-btn{display:inline-flex;align-items:center;min-height:24px}
+.quick-search input,.global-search input{min-height:24px}
+
+.page input:not([type]),.page input[type=text],.page input[type=search]{min-height:24px}
+
+/* Últimos contrastes AA y calendario táctil */
+.cal-chip{min-height:24px}
+button[data-filter]>span{opacity:1;color:var(--c-n600)}
+:root[data-theme="dark"] button[data-filter]>span{color:#c3cad8}
+button[data-filter].selected>span,:root[data-theme="dark"] button[data-filter].selected>span{color:#fff}
+:root[data-theme="dark"] [data-action="bd-state"] small{color:var(--c-n300,#c3cad8)}
+:root[data-theme="dark"] .bd-filters button[data-v]:not(.active){background:transparent}
+:root[data-theme="dark"] .st-page [data-tab-id].active{color:#c9d3ff}
+:root[data-theme="dark"] kbd{background:transparent;color:var(--c-n300,#c3cad8)}
+b>span[style*="#d6408a"]{color:#b52a6f!important}
+:root[data-theme="dark"] b>span[style*="#d6408a"]{color:#f08bbb!important}
+:root[data-theme="dark"] b>span[style*="#2f6fd8"]{color:#8ab2f5!important}
+[data-action="notice-filter"]>span{opacity:1!important;color:var(--c-n600)!important}
+:root[data-theme="dark"] [data-action="notice-filter"]>span{color:#c3cad8!important}
+[data-action="notice-filter"].selected>span,:root[data-theme="dark"] [data-action="notice-filter"].selected>span{color:#fff!important}
+:root[data-theme="dark"] .cx-only{color:#c9d3ff}
+
+/* En pantallas táctiles el efecto de pasar el ratón no se queda pegado tras pulsar */
+@media(hover:none){.btn.primary:hover,.btn:hover:not(:disabled),.cl-list:hover,.cx-slot:hover,.fg-card:hover,.h6-qa:hover,.idea-card:hover,.kpi:hover,.nav-item:hover,.ph-it:hover img,.project-card:hover,.scan-btn:hover,.space-tile:hover,.tl6-plan:hover{transform:none}}
+@media(hover:none) and (prefers-reduced-motion:no-preference){.btn:active:not(:disabled),.h6-qa:active,.h6-stat:active{transform:scale(.97)}}
+.space-next{margin:18px 0}

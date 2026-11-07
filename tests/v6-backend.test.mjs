@@ -142,6 +142,7 @@ test('Agente: un viaje nuevo y sus tareas en el mismo turno quedan encadenados; 
  assert.equal(m.proposals[1].path,'/api/projects/{{p1}}/tasks');assert.equal(m.proposals[1].depends_on,'p1');
  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM projects').get().n,0);
  assert.deepEqual(f.db.prepare('SELECT fact FROM agent_memory').all().map(x=>x.fact),['A Angie no le gusta madrugar']);
+ assert.match(m.content,/Guardado en «Lo que Dupla recuerda»: A Angie no le gusta madrugar/,'lo que se guarda sin confirmar se dice en la respuesta');
  assert.equal((await f.call('/api/agent','POST',{message:'x',scope:'otro'},c)).status,400);
 });
 

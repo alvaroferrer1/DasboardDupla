@@ -505,7 +505,7 @@ async function api(req,res,url){
  // OAuth callback is state-bound and one-use; no cookie is required on the third-party redirect.
  if(path==='/api/google/callback'&&req.method==='GET'){
   const state=String(url.searchParams.get('state')||'');
-  if(!/^[a-zA-Z0-9_-]{40,80}$/.test(state))fail(400,'Estado OAuth inválido');
+  if(!/^[a-zA-Z0-9_-]{40,80}$/.test(state))fail(400,'La conexión con Google ha caducado. Vuelve a intentarlo.');
   const pending=get('SELECT * FROM google_oauth_states WHERE state=?',state);
   if(!pending||pending.expires_at<Date.now())fail(400,'Autorización caducada o ya utilizada');
   run('DELETE FROM google_oauth_states WHERE state=?',state);
@@ -528,7 +528,7 @@ async function api(req,res,url){
  const designCb=path.match(/^\/api\/design\/(figma|canva)\/callback$/);
  if(designCb&&req.method==='GET'){
   const provider=designCb[1],state=String(url.searchParams.get('state')||'');
-  if(!/^[a-zA-Z0-9_-]{40,100}$/.test(state))fail(400,'Estado OAuth inválido');
+  if(!/^[a-zA-Z0-9_-]{40,100}$/.test(state))fail(400,'La conexión con Google ha caducado. Vuelve a intentarlo.');
   const pending=get('SELECT * FROM design_oauth_states WHERE state=? AND provider=?',state,provider);
   if(!pending||pending.expires_at<Date.now())fail(400,'Autorización de diseño caducada o ya utilizada');
   run('DELETE FROM design_oauth_states WHERE state=?',state);
@@ -553,7 +553,7 @@ async function api(req,res,url){
  // Passkeys: Face ID / huella / Windows Hello en vez de contraseña (la contraseña sigue valiendo).
  if(path.startsWith('/api/passkeys')){const host=String(req.headers.host||'').toLowerCase(),rpId=host.split(':')[0],origins=[PUBLIC_ORIGIN,'https://'+host,...(env.DEV_MODE==='true'?['http://'+host]:[])].filter(Boolean);
   const newChallenge=(userId,kind)=>{run('DELETE FROM webauthn_challenges WHERE expires_at<?',Date.now());const c=b64u(randomBytes(32));run('INSERT INTO webauthn_challenges(challenge,user_id,kind,expires_at) VALUES(?,?,?,?)',c,userId,kind,Date.now()+5*60*1000);return c;};
-  const takeChallenge=(raw,kind)=>{let c;try{c=JSON.parse(Buffer.from(String(raw||''),'base64url').toString()).challenge;}catch{fail(400,'Respuesta de passkey no válida');}const row=get('SELECT * FROM webauthn_challenges WHERE challenge=? AND kind=?',String(c||''),kind);run('DELETE FROM webauthn_challenges WHERE challenge=?',String(c||''));if(!row||row.expires_at<Date.now())fail(400,'La petición ha caducado: inténtalo de nuevo.');return row;};
+  const takeChallenge=(raw,kind)=>{let c;try{c=JSON.parse(Buffer.from(String(raw||''),'base64url').toString()).challenge;}catch{fail(400,'No se ha podido comprobar la passkey. Prueba otra vez.');}const row=get('SELECT * FROM webauthn_challenges WHERE challenge=? AND kind=?',String(c||''),kind);run('DELETE FROM webauthn_challenges WHERE challenge=?',String(c||''));if(!row||row.expires_at<Date.now())fail(400,'La petición ha caducado: inténtalo de nuevo.');return row;};
   if(path==='/api/passkeys/login/options'&&req.method==='POST'){respond(res,200,{challenge:newChallenge(null,'login'),rpId,userVerification:'required',timeout:60000});return;}
   if(path==='/api/passkeys/login'&&req.method==='POST'){const b=await readBody(req),key=(req.socket.remoteAddress||'')+':passkey',at=loginAttempts.get(key)||{n:0,since:Date.now()};if(Date.now()-at.since>15*60*1000){at.n=0;at.since=Date.now();}if(at.n>=10)fail(429,'Demasiados intentos. Prueba en 15 minutos.');
    const ch=takeChallenge(b.response?.clientDataJSON,'login'),pk=get('SELECT * FROM passkeys WHERE id=?',String(b.id||''));if(!pk){at.n++;loginAttempts.set(key,at);fail(401,'Esta passkey no está registrada en DUPLA.');}
@@ -870,7 +870,7 @@ async function api(req,res,url){
  const snapFile=path.match(/^\/api\/snapshot\/file\/([a-f0-9-]{36})$/);
  if(snapFile&&req.method==='GET'){const known=get('SELECT 1 FROM assets WHERE stored_name=?',snapFile[1])||get('SELECT 1 FROM couple_items WHERE photo=?',snapFile[1])||get('SELECT 1 FROM couple_list_items WHERE photo=?',snapFile[1])||get('SELECT 1 FROM task_notes WHERE stored_name=?',snapFile[1])||get('SELECT 1 FROM projects WHERE cover_file=?',snapFile[1]);if(!known||!fileExists(snapFile[1]))fail(404,'Archivo no encontrado');respond(res,200,{stored_name:snapFile[1],base64:readFile(snapFile[1]).toString('base64')});return;}
  // Restaurar copias grandes: primero se sube cada archivo y luego la copia sin sus bytes (staged_files).
- if(path==='/api/snapshot/stage-file'&&req.method==='POST'){const b=await readBody(req);if(b.confirmation!=='RESTAURAR DUPLA')fail(400,'Escribe RESTAURAR DUPLA para confirmar');if(!await verifyPassword(String(b.password||''),get('SELECT password_hash FROM users WHERE id=?',u.id).password_hash))fail(403,'Contraseña actual incorrecta');if(typeof b.stored_name!=='string'||!/^[a-f0-9-]{36}$/.test(b.stored_name)||typeof b.base64!=='string'||!/^[a-zA-Z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Adjunto inválido');const raw=Buffer.from(b.base64,'base64');if(!raw.length||raw.length>6*1024*1024)fail(413,'Adjunto inválido o demasiado grande');if(!fileExists(b.stored_name))saveFile(b.stored_name,raw);respond(res,200,{ok:true});return;}
+ if(path==='/api/snapshot/stage-file'&&req.method==='POST'){const b=await readBody(req);if(b.confirmation!=='RESTAURAR DUPLA')fail(400,'Escribe RESTAURAR DUPLA para confirmar');if(!await verifyPassword(String(b.password||''),get('SELECT password_hash FROM users WHERE id=?',u.id).password_hash))fail(403,'Contraseña actual incorrecta');if(typeof b.stored_name!=='string'||!/^[a-f0-9-]{36}$/.test(b.stored_name)||typeof b.base64!=='string'||!/^[a-zA-Z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Adjunto inválido');const raw=Buffer.from(b.base64,'base64');if(!raw.length||raw.length>6*1024*1024)fail(413,'Ese archivo no se puede adjuntar: no es válido o supera el tamaño máximo.');if(!fileExists(b.stored_name))saveFile(b.stored_name,raw);respond(res,200,{ok:true});return;}
  // Explicit, password-confirmed restore. Users, login credentials, sessions, secrets and DO identity are never overwritten.
  if((path==='/api/snapshot/restore'||path==='/api/backups/restore')&&req.method==='POST'){
   const b=await readBody(req);
@@ -915,7 +915,7 @@ async function api(req,res,url){
   let bytes=0;
   for(const file of snapshot.files){
    if(!file||typeof file.stored_name!=='string'||!/^[a-f0-9-]{36}$/.test(file.stored_name)||typeof file.base64!=='string'||!/^[a-zA-Z0-9+/]*={0,2}$/.test(file.base64))fail(400,'Adjunto inválido');
-   const raw=Buffer.from(file.base64,'base64');if(raw.length>6*1024*1024||!raw.length)fail(413,'Adjunto inválido o demasiado grande');
+   const raw=Buffer.from(file.base64,'base64');if(raw.length>6*1024*1024||!raw.length)fail(413,'Ese archivo no se puede adjuntar: no es válido o supera el tamaño máximo.');
    if(files.has(file.stored_name))fail(400,'Adjunto duplicado');
    files.set(file.stored_name,raw);bytes+=raw.length;
    if(bytes>(fromR2?36:6)*1024*1024)fail(413,fromR2?'Los adjuntos exceden los 36 MiB de la copia R2':'Esta copia requiere restauración externa. Máximo 6 MB en restauración web.');
@@ -1268,7 +1268,7 @@ async function api(req,res,url){
  if(path==='/api/push/test'&&req.method==='POST'){
   if(!pushConfigured(env))fail(503,'Configura las claves VAPID antes de probar las notificaciones');
   const b=await readBody(req);
-  if(!isAllowedPushEndpoint(b.endpoint))fail(400,'Suscripción push inválida');
+  if(!isAllowedPushEndpoint(b.endpoint))fail(400,'No se han podido activar los avisos en este dispositivo.');
   const subscription=get('SELECT id,endpoint FROM push_subscriptions WHERE user_id=? AND endpoint=?',u.id,b.endpoint);
   if(!subscription)fail(403,'Este navegador no está suscrito con tu cuenta');
   const rateKey='dupla-push-test:'+u.id;
@@ -1479,7 +1479,7 @@ async function api(req,res,url){
    logChange(p,u,'comentó el proyecto',String(b.content).slice(0,70));respond(res,201,{ok:true});return;
   }
   if(kind==='links'){
-   const address=requireText(b.url,'URL',1500);let parsed;try{parsed=new URL(address);}catch{fail(400,'URL inválida');}if(!['https:','http:'].includes(parsed.protocol))fail(400,'Solo HTTP/HTTPS');
+   const address=requireText(b.url,'URL',1500);let parsed;try{parsed=new URL(address);}catch{fail(400,'Ese enlace no es válido.');}if(!['https:','http:'].includes(parsed.protocol))fail(400,'Solo HTTP/HTTPS');
    run('INSERT INTO links VALUES(?,?,?,?,?,?)',id,p.id,requireText(b.label,'Nombre',120),parsed.toString(),u.id,t);
    logChange(p,u,'añadió un enlace',b.label);respond(res,201,{ok:true});return;
   }
@@ -1487,7 +1487,7 @@ async function api(req,res,url){
    const name=requireText(b.name,'Nombre del archivo',180),mime=choice(b.mime,['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain','text/markdown','application/octet-stream'],'application/octet-stream');
    // MIME provided by a browser is untrusted: verify binary signatures before serving inline.
    const signatures={'image/png':(f)=>f.length>=8&&f.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),'image/jpeg':(f)=>f.length>=3&&f[0]===255&&f[1]===216&&f[2]===255,'image/gif':(f)=>f.length>=6&&['GIF87a','GIF89a'].includes(f.subarray(0,6).toString('ascii')),'image/webp':(f)=>f.length>=12&&f.toString('ascii',0,4)==='RIFF'&&f.toString('ascii',8,12)==='WEBP','application/pdf':(f)=>f.length>=5&&f.toString('ascii',0,5)==='%PDF-'};
-   if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Contenido base64 inválido');
+   if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'El archivo no se ha podido leer. Prueba a subirlo otra vez.');
    const file=Buffer.from(b.base64,'base64');if(!file.length||file.length>6*1024*1024)fail(413,'Máximo 6 MB por archivo');
    if(signatures[mime]&&!signatures[mime](file))fail(415,'El contenido no coincide con el tipo de archivo declarado');
    const storedName=uid();saveFile(storedName,file);

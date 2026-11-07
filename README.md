@@ -152,6 +152,7 @@ Dupla **no es un chatbot**: es un agente que consulta vuestros datos reales con 
 
 - Crea proyectos, viajes, tareas, planes, gastos e ideas, y **eventos en Google Calendar**, con Meet si hace falta.
 - Revisa con el **Director General** qué va mal o se retrasa.
+- Podéis **detener** una respuesta, **reintentar** lo que falle y **deshacer** lo confirmado, también una tarea marcada como hecha.
 - Consulta los **avisos del destino** antes de planificar un viaje.
 - Prepara **PDFs** (itinerario, dossier, presupuesto para clientes).
 - **Deshace** lo último que confirmasteis.

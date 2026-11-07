@@ -12,6 +12,8 @@ const casos = [
   ['menu-y-foco', '390,1440'],
   ['direcciones', '390,1440'],
   ['deshacer', '1440'],
+  ['agente', '390,1440'],
+  ['informe', '390,1440'],
   ['panel-movil', '390'],
   ['errores', '1440'],
   ['gastos-fotos-listas', '390,1440'],

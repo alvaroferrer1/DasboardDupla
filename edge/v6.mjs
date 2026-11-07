@@ -134,11 +134,11 @@ export function createV6(d){
   if(name==='ideas')return all("SELECT title,substr(body,1,160) AS nota,space,state,updated_at FROM ideas WHERE state!='converted' ORDER BY updated_at DESC LIMIT 15").filter(r=>inScope(scope,r.space)).map(({space,...r})=>({...r,espacio:spaceName(space)}));
   if(name==='avisos_destino'){const st=validDate(String(a.fecha_inicio||'')),en=validDate(String(a.fecha_fin||''))||st;if(!st)throw Error('Fecha no válida');return budgetForecast(requireText(a.destino,'Destino',120),st,en,2).then(f=>({avisos:f.alerts.map(x=>x.text),eventos:f.insights?.events,consejos:f.insights?.tips,gasto_otras_veces:f.estimate?.total||null}));}
   if(name==='revisar_director'){const sp=choice(a.espacio,['work','couple']);if(!inScope(scope,sp))throw Error('Ese espacio está fuera del ámbito elegido.');return directorSuggestions(sp).filter(x=>['proposal','review','approved'].includes(x.status)).slice(0,15).map(x=>({area:x.area,gravedad:x.severity,titulo:x.title,detalle:x.detail,estado:x.status,tarea_propuesta:x.task||undefined}));}
-  if(name==='recordar'){const fact=requireText(a.dato,'Dato',300);if(all('SELECT id FROM agent_memory').length>=80)throw Error('La memoria está llena; pide que borren datos antiguos en Ajustes.');run('INSERT INTO agent_memory(id,fact,created_by,created_at) VALUES(?,?,?,?)',uid(),fact,u.id,now());return {guardado:true};}
+  if(name==='recordar'){const fact=requireText(a.dato,'Dato',300);if(all('SELECT id FROM agent_memory').length>=80)throw Error('La memoria está llena; pide que borren datos antiguos en Ajustes.');run('INSERT INTO agent_memory(id,fact,created_by,created_at) VALUES(?,?,?,?)',uid(),fact,u.id,now());return {guardado:true,dato:fact};}
   return null;
  }
  // Construye la propuesta exacta (método, ruta y cuerpo) que la API normal validará al confirmarla.
- const UNDOABLE=['crear_proyecto','crear_tarea','crear_evento','anadir_gasto','crear_idea','crear_evento_calendario'];
+ const UNDOABLE=['crear_proyecto','crear_tarea','crear_evento','anadir_gasto','crear_idea','crear_evento_calendario','completar_tarea'];
  function proposal(name,a,scope,pending,u){
   const date=v=>v?validDate(String(v)):null;
   // Un proyecto propuesto en este mismo turno se referencia como {{pN}} y el navegador lo sustituye al confirmarlo.
@@ -160,9 +160,9 @@ export function createV6(d){
    const body={title:requireText(a.titulo,'Evento',160),date:validDate(requireText(a.fecha,'Fecha')),time:a.hora&&/^([01]\d|2[0-3]):[0-5]\d$/.test(a.hora)?a.hora:'',location:optional(a.lugar||'',220),notes:optional(a.nota||'',2000),request_id:uid(),meet:a.videollamada===true};
    return {method:'POST',path:'/api/google/shared/events',body,summary:`Evento en «DUPLA · Nuestro calendario»: ${body.title} · ${body.date}${body.time?' '+body.time:''}${body.location?' · '+body.location:''}${body.meet?' · con Google Meet':''}`};}
   if(name==='deshacer'){const rows=all("SELECT id,proposals FROM agent_messages WHERE user_id=? AND role='assistant' AND proposals LIKE '%\"done\"%' ORDER BY created_at DESC LIMIT 5",u.id);
-   for(const r of rows){const done=JSON.parse(r.proposals).filter(x=>x.status==='done'&&x.result_id&&UNDOABLE.includes(x.tool));if(done.length)return {method:'UNDO',path:'undo',body:{message_id:r.id},summary:'Deshacer lo último confirmado: '+done.map(x=>x.summary).join(' · ').slice(0,300)};}
+   for(const r of rows){const done=JSON.parse(r.proposals).filter(x=>x.status==='done'&&x.result_id&&UNDOABLE.includes(x.tool)&&(x.tool!=='completar_tarea'||x.undo_state));if(done.length)return {method:'UNDO',path:'undo',body:{message_id:r.id},summary:'Deshacer lo último confirmado: '+done.map(x=>x.summary).join(' · ').slice(0,300)};}
    throw Error('No hay nada confirmado recientemente que se pueda deshacer.');}
-  if(name==='completar_tarea'){const p=findProject(a.proyecto,scope);const t=norm(a.tarea);const ts=all("SELECT id,title,revision FROM tasks WHERE project_id=? AND state!='done'",p.id);const m=ts.filter(x=>norm(x.title)===t);const c=m.length?m:ts.filter(x=>norm(x.title).includes(t));if(c.length!==1)throw Error(c.length?'Varias tareas encajan: '+c.map(x=>x.title).join(', '):'No hay tarea pendiente con ese nombre en '+p.title);return {method:'PATCH',path:'/api/tasks/'+c[0].id,body:{state:'done',revision:c[0].revision},summary:`Marcar como hecha «${c[0].title}» (${p.title})`};}
+  if(name==='completar_tarea'){const p=findProject(a.proyecto,scope);const t=norm(a.tarea);const ts=all("SELECT id,title,revision,state,recurrence FROM tasks WHERE project_id=? AND state!='done'",p.id);const m=ts.filter(x=>norm(x.title)===t);const c=m.length?m:ts.filter(x=>norm(x.title).includes(t));if(c.length!==1)throw Error(c.length?'Varias tareas encajan: '+c.map(x=>x.title).join(', '):'No hay tarea pendiente con ese nombre en '+p.title);return {method:'PATCH',path:'/api/tasks/'+c[0].id,body:{state:'done',revision:c[0].revision},...(c[0].recurrence==='none'?{undo_state:c[0].state}:{}),summary:`Marcar como hecha «${c[0].title}» (${p.title})`};}
   return null;
  }
  function systemPrompt(u,scope){
@@ -186,7 +186,7 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
   if(!env.AI)fail(503,'La IA no está disponible en este entorno');
   const history=all('SELECT role,content FROM agent_messages WHERE user_id=? ORDER BY created_at DESC LIMIT 12',u.id).reverse();
   const messages=[{role:'system',content:systemPrompt(u,scope)},...history.map(h=>({role:h.role,content:h.content})),{role:'user',content:message}];
-  const proposals=[],trace=[];let reply='',neurons=0,nudged=false;
+  const proposals=[],trace=[],remembered=[];let reply='',neurons=0,nudged=false;
   for(let step=0;step<6;step++){
    let r;try{r=await env.AI.run(env.AI_MODEL||AGENT_MODEL,{messages,tools:TOOLS,max_tokens:1200,temperature:0.3});}catch(ex){fail(502,'La IA no ha respondido: '+String(ex.message||ex).slice(0,160));}
    neurons+=Number(r.usage?.neurons||0);const msg=r.choices?.[0]?.message||{};const calls=msg.tool_calls||r.tool_calls||[];
@@ -197,13 +197,14 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
     break;}
    messages.push({role:'assistant',content:msg.content||'',tool_calls:calls});
    for(const c of calls){const name=c.function?.name||c.name;let args={};try{args=typeof (c.function?.arguments??c.arguments)==='string'?JSON.parse(c.function?.arguments??c.arguments):(c.function?.arguments??c.arguments??{});}catch{}
-    let result;try{const read=await readTool(name,args,scope,u);if(read!==null){result=read;trace.push({tool:name,ok:true});}else{const p=proposal(name,args,scope,proposals,u);if(!p)throw Error('Herramienta desconocida');const id='p'+(proposals.length+1);proposals.push({id,tool:name,status:'pending',...p});result={propuesta:id,resumen:p.summary,estado:'pendiente de que la persona la confirme'};trace.push({tool:name,ok:true});}}
+    let result;try{const read=await readTool(name,args,scope,u);if(read!==null){result=read;if(name==='recordar')remembered.push(read.dato);trace.push({tool:name,ok:true});}else{const p=proposal(name,args,scope,proposals,u);if(!p)throw Error('Herramienta desconocida');const id='p'+(proposals.length+1);proposals.push({id,tool:name,status:'pending',...p});result={propuesta:id,resumen:p.summary,estado:'pendiente de que la persona la confirme'};trace.push({tool:name,ok:true});}}
     catch(ex){result={error:String(ex.message||ex)};trace.push({tool:name,ok:false,error:result.error});}
     messages.push({role:'tool',tool_call_id:c.id||name,content:toolResultText(result)});}
   }
   // Si Dupla crea un proyecto y además propone sus tareas, sin las tareas genéricas de la plantilla (evita duplicados), conservando el tipo.
   for(const p of proposals)if(p.tool==='crear_proyecto'&&p.body.template!=='blank'&&proposals.some(x=>x.depends_on===p.id&&x.tool==='crear_tarea')){p.body.kind=p.body.template;p.body.template='blank';}
   if(!reply)reply=proposals.length?'He preparado estas propuestas. Revísalas y confírmalas cuando quieras.':'No he podido completar la respuesta. ¿Puedes reformularlo?';
+  if(remembered.length)reply+=`\n\nGuardado en «Lo que Dupla recuerda»: ${remembered.join(' · ')}`;
   const t=now();run('INSERT INTO agent_messages(id,user_id,role,content,proposals,created_at) VALUES(?,?,?,?,?,?)',uid(),u.id,'user',message,'[]',t);
   const id=uid();run('INSERT INTO agent_messages(id,user_id,role,content,proposals,created_at) VALUES(?,?,?,?,?,?)',id,u.id,'assistant',reply.slice(0,8000),JSON.stringify(proposals),new Date(Date.parse(t)+1).toISOString());
   return {id,role:'assistant',content:reply,proposals,trace,neurons:Math.round(neurons),created_at:t};
@@ -331,7 +332,7 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
    const goal=v=>Math.max(0,Math.min(1000,Math.round(Number(v)||0))),itemsOf=id=>all('SELECT i.*,us.name AS author FROM couple_list_items i LEFT JOIN users us ON us.id=i.created_by WHERE i.list_id=? ORDER BY i.created_at,i.rowid',id);
    if(cl[1]){const it=get('SELECT * FROM couple_list_items WHERE id=?',cl[1])||fail(404,'Elemento no encontrado');
     if(cl[2]&&req.method==='GET'){if(!it.photo||!fileExists(it.photo))fail(404,'Sin foto');const f=readFile(it.photo);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=604800','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
-    if(cl[2]&&req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Contenido base64 inválido');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>6*1024*1024)fail(413,'La foto debe ocupar menos de 6 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
+    if(cl[2]&&req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'El archivo no se ha podido leer. Prueba a subirlo otra vez.');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>6*1024*1024)fail(413,'La foto debe ocupar menos de 6 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
      const name=uid();saveFile(name,f);if(it.photo){try{removeFile(it.photo);}catch{}}run('UPDATE couple_list_items SET photo=?,updated_at=? WHERE id=?',name,now(),it.id);logSpace(u,'subió una foto a una lista',it.title,null);respond(res,200,{ok:true});return true;}
     if(cl[2]&&req.method==='DELETE'){if(it.photo){try{removeFile(it.photo);}catch{}}run('UPDATE couple_list_items SET photo=NULL,updated_at=? WHERE id=?',now(),it.id);respond(res,200,{ok:true});return true;}
     if(!cl[2]&&req.method==='PATCH'){const b=await readBody(req),done=b.done===undefined?it.done:(b.done?1:0),t=now();run('UPDATE couple_list_items SET title=?,note=?,done=?,done_at=?,updated_at=? WHERE id=?',b.title===undefined?it.title:requireText(b.title,'Título',160),b.note===undefined?it.note:optional(b.note,1000),done,done?(it.done_at||t):null,t,it.id);if(done&&!it.done)logSpace(u,'completó una cosa de la lista',it.title,null);respond(res,200,{ok:true});return true;}
@@ -355,7 +356,7 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
    if(item&&!ci[2]&&req.method==='PATCH'){const b=await readBody(req),f=fields(b,item);run('UPDATE couple_items SET title=?,body=?,item_date=?,price=?,url=?,person=?,progress=?,done=?,project_id=?,updated_at=? WHERE id=?',f.title,f.body,f.item_date,f.price,f.url,f.person,f.progress,f.done,f.project_id,now(),item.id);
     logSpace(u,b.done===true&&!item.done?'completó '+(item.kind==='memory'?'un recuerdo':'«'+label[item.kind]+'»'):'actualizó '+label[item.kind],f.title,f.project_id);respond(res,200,{item:get('SELECT * FROM couple_items WHERE id=?',item.id)});return true;}
    if(item&&!ci[2]&&req.method==='DELETE'){if(item.photo){try{removeFile(item.photo);}catch{}}run('DELETE FROM couple_items WHERE id=?',item.id);logSpace(u,'eliminó '+label[item.kind],item.title,item.project_id);respond(res,200,{ok:true});return true;}
-   if(item&&ci[2]&&req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Contenido base64 inválido');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>6*1024*1024)fail(413,'La foto debe ocupar menos de 6 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
+   if(item&&ci[2]&&req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'El archivo no se ha podido leer. Prueba a subirlo otra vez.');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>6*1024*1024)fail(413,'La foto debe ocupar menos de 6 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
     const name=uid();saveFile(name,f);if(item.photo){try{removeFile(item.photo);}catch{}}run('UPDATE couple_items SET photo=?,updated_at=? WHERE id=?',name,now(),item.id);logSpace(u,'añadió una foto a un recuerdo',item.title,item.project_id);respond(res,200,{ok:true});return true;}
    if(item&&ci[2]&&req.method==='GET'){if(!item.photo||!fileExists(item.photo))fail(404,'Sin foto');const f=readFile(item.photo);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
   }
@@ -445,7 +446,7 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
    if(req.method==='GET'&&!tn[1]){respond(res,200,{items:list(target(url.searchParams.get('kind'),url.searchParams.get('id')))});return true;}
    if(req.method==='POST'&&!tn[1]){const b=await readBody(req),t=target(b.kind_of,b.id),kind=choice(b.kind||'avance',['avance','ayuda','bloqueo','falta']);let file=null,fname='',fmime='';
     if(b.file){fname=requireText(b.file.name,'Nombre del archivo',180);fmime=choice(b.file.mime,['image/png','image/jpeg','image/webp','image/gif','application/pdf','text/plain','text/markdown','application/octet-stream'],'application/octet-stream');
-     if(typeof b.file.base64!=='string'||!/^[A-Za-z0-9+/]*={0,2}$/.test(b.file.base64))fail(400,'Contenido base64 inválido');
+     if(typeof b.file.base64!=='string'||!/^[A-Za-z0-9+/]*={0,2}$/.test(b.file.base64))fail(400,'El archivo no se ha podido leer. Prueba a subirlo otra vez.');
      file=Buffer.from(b.file.base64,'base64');if(!file.length||file.length>6*1024*1024)fail(413,'Máximo 6 MB por archivo');
      const sig={'image/png':f=>f.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])),'image/jpeg':f=>f[0]===255&&f[1]===216&&f[2]===255,'image/gif':f=>/^GIF8[79]a/.test(f.toString('ascii',0,6)),'image/webp':f=>f.toString('ascii',0,4)==='RIFF'&&f.toString('ascii',8,12)==='WEBP','application/pdf':f=>f.toString('ascii',0,5)==='%PDF-'};
      if(sig[fmime]&&!sig[fmime](file))fail(415,'El contenido no coincide con el tipo de archivo declarado');}
@@ -503,7 +504,7 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
   if(sm&&req.method==='DELETE'){if(u.token_hash.startsWith(sm[1]))fail(400,'Para cerrar esta sesión usa «Cerrar sesión»');const n=run('DELETE FROM sessions WHERE user_id=? AND substr(token_hash,1,16)=?',u.id,sm[1]).changes;if(!n)fail(404,'Sesión no encontrada');respond(res,200,{ok:true});return true;}
   if(path==='/api/agent/avatar'){
    if(req.method==='GET'){const name=getShared('dupla_avatar');if(!name||!fileExists(name))fail(404,'Sin avatar');const f=readFile(name);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=604800','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
-   if(req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Contenido base64 inválido');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>2*1024*1024)fail(413,'El avatar debe ocupar menos de 2 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
+   if(req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'El archivo no se ha podido leer. Prueba a subirlo otra vez.');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>2*1024*1024)fail(413,'El avatar debe ocupar menos de 2 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
     const name=uid();saveFile(name,f);const old=getShared('dupla_avatar');setShared('dupla_avatar',name,u.id);if(old){try{removeFile(old);}catch{}}respond(res,200,{shared:sharedSettings()});return true;}
    if(req.method==='DELETE'){const old=getShared('dupla_avatar');if(old){try{removeFile(old);}catch{}}run("DELETE FROM shared_settings WHERE key='dupla_avatar'");respond(res,200,{shared:sharedSettings()});return true;}
   }
@@ -521,7 +522,7 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
    if(m[2]==='cover'&&req.method==='GET'){if(!p.cover_file||!fileExists(p.cover_file))fail(404,'Sin portada');const f=readFile(p.cover_file);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
    if(m[2]==='cover'&&req.method==='POST'){const b=await readBody(req);let file,credit;
     if(b.url){file=await downloadImage(String(b.url));credit=optional(b.credit||'Wikimedia Commons',200);}
-    else if(typeof b.base64==='string'){if(!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'Contenido base64 inválido');file=Buffer.from(b.base64,'base64');if(!file.length||file.length>6*1024*1024)fail(413,'Máximo 6 MB');if(!isImage(file))fail(415,'Sube una foto JPG, PNG o WebP');credit='Foto vuestra';}
+    else if(typeof b.base64==='string'){if(!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'El archivo no se ha podido leer. Prueba a subirlo otra vez.');file=Buffer.from(b.base64,'base64');if(!file.length||file.length>6*1024*1024)fail(413,'Máximo 6 MB');if(!isImage(file))fail(415,'Sube una foto JPG, PNG o WebP');credit='Foto vuestra';}
     else if(b.auto){const done=await autoCover(p);respond(res,200,{ok:done,project:project(p.id)});return true;}
     else fail(400,'Indica una foto');
     setCover(p,file,credit,u);respond(res,200,{ok:true,project:project(p.id)});return true;}
