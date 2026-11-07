@@ -1606,12 +1606,12 @@ b>span[style*="#d6408a"]{color:#b52a6f!important}
 @keyframes rise-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes bar-in{from{transform:scaleY(0)}to{transform:none}}
 @keyframes hero-in{from{transform:scale(1.05)}to{transform:none}}
-.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.fin-grid>*,.bd-col){animation:rise-in .34s cubic-bezier(.22,1,.36,1) both}
-.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.bd-col):nth-child(2){animation-delay:40ms}
-.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.bd-col):nth-child(3){animation-delay:80ms}
-.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.bd-col):nth-child(n+4){animation-delay:120ms}
-.entering .fin-bars i{transform-origin:bottom;animation:bar-in .42s cubic-bezier(.22,1,.36,1) both}
-.entering .h6-hero .h6-hero-img{animation:hero-in .9s cubic-bezier(.22,1,.36,1) both}
+.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.fin-grid>*,.bd-col){animation:rise-in .26s cubic-bezier(.22,1,.36,1) both}
+.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.bd-col):nth-child(2){animation-delay:30ms}
+.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.bd-col):nth-child(3){animation-delay:60ms}
+.entering :is(.project-card,.idea-card,.kpi,.h6-qa,.h6-stat,.bd-col):nth-child(n+4){animation-delay:100ms}
+.entering .fin-bars i{transform-origin:bottom;animation:bar-in .28s cubic-bezier(.22,1,.36,1) both}
+.entering .h6-hero .h6-hero-img{animation:hero-in .4s cubic-bezier(.22,1,.36,1) both}
 .toast{transition:transform .22s cubic-bezier(.22,1,.36,1),opacity .18s ease-out}
 @media(prefers-reduced-motion:reduce){.entering *{animation:none!important}}
 :root[data-theme="dark"] .cx-only{background:#262c3d}
@@ -1635,3 +1635,18 @@ b>span[style*="#d6408a"]{color:#b52a6f!important}
 .bal-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .bal-pays{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:6px;font-size:13px;color:var(--v6-muted)}
 .bal-pays li{display:flex;justify-content:space-between;align-items:center;gap:10px}
+
+/* Estado de pago por viaje y consejos del destino */
+.td-h{margin:16px 0 8px;font-size:14px}
+.td-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.td-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;padding:12px;border:1px solid var(--c-n100);border-radius:var(--r-md);background:var(--c-n25)}
+.td-open{display:grid;gap:2px;text-align:left;background:none;border:0;padding:0;cursor:pointer;color:inherit;min-width:0}.td-open small{color:var(--v6-muted);font-size:12px}
+.td-st{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--c-n100)}.td-st.ok{background:#d9f2e6;color:#0d5c40}.td-st.part{background:#fdeed2;color:#7a4c06}.td-st.pend{background:#fde0e0;color:#8e2735}
+.td-acts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.bg-owed{display:block;font-size:12px;font-weight:600;color:var(--c-r700)}
+.adv{margin-top:14px;padding-top:14px;border-top:1px solid var(--c-n100)}.adv h4{display:flex;align-items:center;gap:6px;margin:0 0 10px}.adv h5{margin:14px 0 6px;font-size:13px}
+.adv-stats{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:8px}.adv-stats small{display:block;color:var(--v6-muted);font-size:12px}.adv-stats b{font-size:18px}
+.adv-list,.adv-zones{list-style:none;margin:0;padding:0;display:grid;gap:8px}.adv-list li{display:flex;justify-content:space-between;align-items:center;gap:10px}.adv-list small{display:block;color:var(--v6-muted);font-size:12px}
+.adv-must{margin-left:8px;padding:2px 7px;border-radius:999px;background:#fdeed2;color:#7a4c06;font-size:12px;font-weight:700}.adv-note{display:block;margin-top:8px;color:var(--v6-muted);font-size:12px}
+:root[data-theme="dark"] .td-list li{background:var(--c-n925);border-color:var(--v6-line)}
+:root[data-theme="dark"] .bg-owed{color:#ffb3ba}

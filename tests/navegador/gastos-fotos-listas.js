@@ -31,7 +31,7 @@ const go=async v=>{if(innerWidth<851){$('[data-action="toggle-menu"]')?.click();
 await go('finance');await until(()=>$('.fin-debt'));
 const tarjetas=()=>{const cs=$$('.fk-grid>.fk-card');if(cs.length!==4)f.push('tarjetas: '+cs.length);for(const c of cs){const s=getComputedStyle(c),l=c.querySelector('.fk-l').getBoundingClientRect(),v=c.querySelector('.fk-v').getBoundingClientRect(),h=c.querySelector('.fk-h').getBoundingClientRect();if(s.flexDirection!=='column'||s.display!=='flex'||parseFloat(s.paddingLeft)<14||s.backgroundColor==='rgba(0, 0, 0, 0)'||!(l.bottom<=v.top+1&&v.bottom<=h.top+1))f.push('tarjeta rota: '+c.textContent);}};tarjetas();
 for(const s of ['[data-action="fin-period"][data-v="quarter"]','[data-action="fin-period"][data-v="month"]','[data-action="fin-tab"][data-v="groups"]','[data-action="fin-tab"][data-v="summary"]']){$(s).click();await w(450);if($('.fk-grid'))tarjetas();}
-if(!/Madrid prueba/.test($('.fin-debt-s')?.textContent||''))f.push('deuda sin el viaje: '+$('.fin-debt')?.textContent);
+if(!/Madrid prueba/.test($('.td-list')?.textContent||''))f.push('deuda sin el viaje: '+$('.fin-debt')?.textContent);
 // Listas.
 await go('couple');await until(()=>$('[data-action="cp-tab"][data-v="listas"]'));$('[data-action="cp-tab"][data-v="listas"]').click();await until(()=>$('#cl-new'));
 $('#cl-new [name=title]').value='20 cosas';$('#cl-new [name=goal]').value='20';$('#cl-new').requestSubmit();await until(()=>$('#cl-add'));

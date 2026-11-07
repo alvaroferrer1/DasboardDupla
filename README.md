@@ -124,7 +124,9 @@ Videollamada propia (WebRTC directo, señalización por la API) o **Google Meet*
 <tr>
 <td valign="top">
 
-En cada viaje o plan podéis marcar lo que queda como pagado, entero o en parte, y la deuda desaparece de Presupuestos y Finanzas. Si os equivocáis, se deshace.
+En cada viaje o plan podéis marcar lo que queda como pagado, entero o en parte, y la deuda desaparece de Presupuestos y Finanzas. Si os equivocáis, se deshace. Finanzas enseña cada viaje por separado: pendiente, pagado en parte o pagado.
+
+Cada destino muestra vuestro gasto medio, el mes en que más gastasteis y, si lo pedís, qué hacer, qué zonas elegir y cuándo sube el precio.
 
 ### 🔔 Avisos de verdad
 

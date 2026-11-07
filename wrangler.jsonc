@@ -24,6 +24,12 @@
       ]
     }
   ],
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
   "workers_dev": true,
   "vars": {
     "PUBLIC_ORIGIN": "https://dos-espacios-compartido.dos-espacios-ferris.workers.dev"

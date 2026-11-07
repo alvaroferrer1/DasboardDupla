@@ -993,3 +993,23 @@ test('Saldar un viaje: la deuda desaparece en todas partes y se puede deshacer',
  assert.ok(await deuda(),'al deshacer vuelve la deuda');
  assert.ok((await f.call('/api/snapshot','GET',undefined,a)).data.data.fin_project_settles,'va en las copias');
 });
+
+test('Cada viaje lleva su propio estado de pago en Finanzas',async()=>{
+ const f=fixture();const a=await f.login();const [u1,u2]=f.db.prepare('SELECT id FROM users ORDER BY name').all().map(x=>x.id);
+ const viaje=async(title,actual)=>{const p=(await f.call('/api/projects','POST',{space:'couple',title,template:'blank'},a)).data.project;await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'Hotel',estimated:0,actual,paid_by:u2,for_user:''},a);return p;};
+ const lisboa=await viaje('Lisboa',100),roma=await viaje('Roma',200),paris=await viaje('París',60);
+ await f.call(`/api/finance/projects/${lisboa.id}/settle`,'POST',{},a);await f.call(`/api/finance/projects/${roma.id}/settle`,'POST',{amount:40},a);
+ const d=(await f.call('/api/finance','GET',undefined,a)).data.debts,by=t=>d.trips.find(x=>x.title===t);
+ assert.equal(by('Lisboa').status,'settled');assert.equal(by('Lisboa').owes,null);assert.equal(by('Roma').status,'partial');assert.equal(by('Roma').owes.amount,60);assert.equal(by('Roma').settled,40);assert.equal(by('París').status,'pending');
+ assert.deepEqual(d.owes,{from:u1,to:u2,amount:90},'el total sale de lo que queda en cada uno');
+});
+
+test('Consejos del destino: gasto medio real, época más cara y propuestas de la IA guardadas',async()=>{
+ const ai={run:async()=>({response:'{"actividades":[{"titulo":"Museo del Prado","por_que":"Imprescindible","zona":"Retiro","imprescindible":true}],"zonas":[{"nombre":"Malasaña","por_que":"Ambiente"}],"epocas":"Más caro en mayo."}'})};
+ const f=fixture(ai);const a=await f.login();const u=f.db.prepare('SELECT id FROM users LIMIT 1').get().id;
+ for(const [t,ini,fin,x] of [['Madrid 1','2025-03-10','2025-03-12',300],['Madrid 2','2025-05-10','2025-05-12',500]]){const p=(await f.call('/api/projects','POST',{space:'couple',title:t,template:'trip',destination:'Madrid',start_date:ini,end_date:fin},a)).data.project;await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'Hotel',category:'stay',estimated:0,actual:x,paid_by:u,for_user:''},a);}
+ const h=(await f.call('/api/budget/advice?destination=Madrid','GET',undefined,a)).data;assert.equal(h.history.avg,400);assert.equal(h.history.peak.month,5);assert.equal(h.history.peak.pct,25);assert.equal(h.ai,null,'sin pedirlo no gasta IA');
+ const g=(await f.call('/api/budget/advice?destination=Madrid&generar=1','GET',undefined,a)).data;assert.equal(g.ai.actividades[0].titulo,'Museo del Prado');
+ assert.equal((await f.call('/api/budget/advice?destination=madrid','GET',undefined,a)).data.ai.zonas[0].nombre,'Malasaña','queda guardado');
+});
+
