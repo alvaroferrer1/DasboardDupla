@@ -16,6 +16,7 @@ const casos = [
   ['informe', '390,1440'],
   ['finanzas-csv', '390,1440'],
   ['novedades', '390,1440'],
+  ['saldar', '390,1440'],
   ['panel-movil', '390'],
   ['errores', '1440'],
   ['gastos-fotos-listas', '390,1440'],

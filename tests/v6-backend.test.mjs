@@ -973,3 +973,23 @@ test('Repaso del mes: cuenta lo real del mes anterior y se calla si no hubo nada
  const r=await f.call('/api/monthly-review','GET',undefined,c);
  if(new Date().getUTCDate()<=10){assert.equal(r.data.review.ideas,1);assert.equal(r.data.review.month,mes);}else assert.equal(r.data.review,null,'pasados los primeros días no se muestra');
 });
+
+test('Saldar un viaje: la deuda desaparece en todas partes y se puede deshacer',async()=>{
+ const f=fixture();const a=await f.login();const [u1,u2]=f.db.prepare('SELECT id FROM users ORDER BY name').all().map(x=>x.id);
+ const p=(await f.call('/api/projects','POST',{space:'couple',title:'Lisboa',template:'blank'},a)).data.project;
+ await f.call(`/api/projects/${p.id}/expenses`,'POST',{title:'Hotel',estimated:0,actual:100,paid_by:u2,for_user:''},a);
+ const deuda=()=>f.call('/api/balance','GET',undefined,a).then(r=>r.data.projects.find(x=>x.id===p.id).owes);
+ assert.deepEqual(await deuda(),{from:u1,to:u2,amount:50});
+ assert.equal((await f.call(`/api/finance/projects/${p.id}/settle`,'POST',{amount:80},a)).status,400,'no se paga más de lo pendiente');
+ assert.equal((await f.call(`/api/finance/projects/${p.id}/settle`,'POST',{amount:20},a)).status,200);
+ assert.equal((await deuda()).amount,30,'pago parcial');
+ assert.equal((await f.call(`/api/finance/projects/${p.id}/settle`,'POST',{},a)).status,200);
+ assert.equal(await deuda(),null);
+ assert.equal((await f.call('/api/finance','GET',undefined,a)).data.debts.owes,null);
+ assert.equal((await f.call(`/api/finance/projects/${p.id}/settle`,'POST',{},a)).status,409,'nada que saldar');
+ const d=(await f.call('/api/projects/'+p.id,'GET',undefined,a)).data;const pagos=(d.project||d).settles;assert.equal(pagos.length,2);
+ const g=(await f.call('/api/finance/groups','POST',{project_id:p.id},a)).data;assert.equal(g.stats.owes,null,'la carpeta del viaje también lo cuenta');
+ assert.equal((await f.call('/api/finance/project-settles/'+pagos[0].id,'DELETE',undefined,a)).status,200);
+ assert.ok(await deuda(),'al deshacer vuelve la deuda');
+ assert.ok((await f.call('/api/snapshot','GET',undefined,a)).data.data.fin_project_settles,'va en las copias');
+});

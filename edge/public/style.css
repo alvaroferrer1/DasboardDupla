@@ -1630,3 +1630,8 @@ b>span[style*="#d6408a"]{color:#b52a6f!important}
 :root[data-theme="dark"] .bd-search{background:var(--v6-panel);border-color:var(--v6-line)}
 :root[data-theme="dark"] .mo-stat{background:var(--c-n925)}
 :root[data-theme="dark"] .setup-bar{background:var(--c-n800)}
+
+/* Saldar lo pendiente de un viaje */
+.bal-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.bal-pays{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:6px;font-size:13px;color:var(--v6-muted)}
+.bal-pays li{display:flex;justify-content:space-between;align-items:center;gap:10px}

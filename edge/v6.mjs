@@ -576,9 +576,10 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
   const stm=path.match(/^\/api\/shortcut-tokens\/([a-f0-9-]{36})$/);if(stm&&req.method==='DELETE'){if(!run('DELETE FROM api_tokens WHERE id=? AND user_id=?',stm[1],u.id).changes)fail(404,'Clave no encontrada');respond(res,200,{ok:true});return true;}
   // Saldo de pareja: lo que ha pagado cada uno en los planes de pareja y quién debe a quién (a medias).
   if(path==='/api/balance'&&req.method==='GET'){const users=all('SELECT id,name FROM users ORDER BY name'),rows=all("SELECT e.paid_by,e.for_user,e.actual,p.id AS pid,p.title FROM expenses e JOIN projects p ON p.id=e.project_id WHERE p.deleted_at IS NULL AND p.space='couple' AND e.paid_by IS NOT NULL AND e.actual>0");
-   const calc=list=>{const paid=Object.fromEntries(users.map(x=>[x.id,0]));for(const x of list)if(x.paid_by in paid)paid[x.paid_by]+=x.actual;const tot=Object.values(paid).reduce((a,b)=>a+b,0),[a,b]=users,d=Math.round(list.reduce((n,x)=>{const t=x.actual*(!x.for_user?.5:x.for_user===x.paid_by?0:1);return x.paid_by===a?.id?n+t:n-t;},0)*100)/100;
+   const settles=all('SELECT s.project_id,s.from_user,s.amount FROM fin_project_settles s JOIN projects p ON p.id=s.project_id WHERE p.deleted_at IS NULL');
+   const calc=(list,paidBack=settles)=>{const paid=Object.fromEntries(users.map(x=>[x.id,0]));for(const x of list)if(x.paid_by in paid)paid[x.paid_by]+=x.actual;const tot=Object.values(paid).reduce((a,b)=>a+b,0),[a,b]=users,d=Math.round((list.reduce((n,x)=>{const t=x.actual*(!x.for_user?.5:x.for_user===x.paid_by?0:1);return x.paid_by===a?.id?n+t:n-t;},0)+paidBack.reduce((n,s)=>s.from_user===a?.id?n+s.amount:n-s.amount,0))*100)/100;
     return {total:Math.round(tot*100)/100,paid:users.map(x=>({id:x.id,name:x.name,amount:Math.round(paid[x.id]*100)/100})),owes:users.length===2&&Math.abs(d)>=0.01?{from:d>0?b.id:a.id,to:d>0?a.id:b.id,amount:Math.abs(d)}:null};};
-   const per=[...new Set(rows.map(x=>x.pid))].map(pid=>({id:pid,title:rows.find(x=>x.pid===pid).title,...calc(rows.filter(x=>x.pid===pid))}));
+   const per=[...new Set(rows.map(x=>x.pid))].map(pid=>({id:pid,title:rows.find(x=>x.pid===pid).title,...calc(rows.filter(x=>x.pid===pid),settles.filter(s=>s.project_id===pid))}));
    respond(res,200,{...calc(rows),projects:per});return true;}
   return false;
  }

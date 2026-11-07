@@ -124,6 +124,8 @@ Videollamada propia (WebRTC directo, señalización por la API) o **Google Meet*
 <tr>
 <td valign="top">
 
+En cada viaje o plan podéis marcar lo que queda como pagado, entero o en parte, y la deuda desaparece de Presupuestos y Finanzas. Si os equivocáis, se deshace.
+
 ### 🔔 Avisos de verdad
 
 Agrupados por día. En Inicio tenéis el repaso del mes y una guía de puesta a punto para empezar. Tareas tiene buscador, Finanzas descarga a Excel y hay plantillas de playa, ciudad y ruta en coche.

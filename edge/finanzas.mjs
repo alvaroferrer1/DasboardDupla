@@ -1,7 +1,7 @@
 // DUPLA · Finanzas de la cuenta compartida: movimientos (ingresos y gastos), presupuesto mensual por categoría,
 // objetivos de ahorro y facturas pendientes. Los gastos reales de los proyectos (viajes, planes) también cuentan.
 export const FIN_CATS={hogar:['Hogar','#2f6fd8'],comida:['Comida','#22a05a'],trabajo:['Trabajo y software','#7c4ddb'],ocio:['Ocio y viajes','#e04848'],bienestar:['Bienestar','#d6408a'],transporte:['Transporte','#e08a1e'],salud:['Salud','#14a3a3'],otros:['Otros','#7d8597'],ingreso:['Ingreso','#22a05a']};
-export const FIN_TABLES=['fin_groups','fin_moves','fin_budgets','fin_goals','fin_bills','fin_settles'];
+export const FIN_TABLES=['fin_groups','fin_moves','fin_budgets','fin_goals','fin_bills','fin_settles','fin_project_settles'];
 const OUT=Object.keys(FIN_CATS).filter(k=>k!=='ingreso'),ICONS=['plane','heart','lock','home','gift','star','camera','briefcase','sun','wallet'];
 const MES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'],MESL=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 const ym=(y,m)=>{const d=new Date(Date.UTC(y,m,1));return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;};
@@ -60,13 +60,16 @@ export function createFinanzas(d){
    cats:Object.entries(cats).map(([k,v])=>({category:k,label:FIN_CATS[k]?.[0]||k,color:FIN_CATS[k]?.[1]||'#7d8597',amount:r2(v)})).sort((x,y)=>y.amount-x.amount),
    days:Object.entries(days).sort(([x],[y])=>x.localeCompare(y)).map(([date,amount])=>({date,amount:r2(amount)}))};}
  // Lo que os debéis en total: carpetas (con sus pagos) y viajes o planes de pareja sin carpeta.
+ // Pagos apuntados desde el propio viaje: cuentan igual tenga carpeta o no.
+ const projSettles=id=>all('SELECT * FROM fin_project_settles WHERE project_id=? ORDER BY date DESC,created_at DESC',id);
+ const fullSettles=g=>[...settlesOf(g.id),...(g.project_id?projSettles(g.project_id):[])];
  function debts(){const users=all('SELECT id FROM users ORDER BY name'),net=Object.fromEntries(users.map(x=>[x.id,0])),sources=[];let any=false;const add=(st,o)=>{any=true;for(const x of st.people)net[x.id]+=x.net;if(st.owes)sources.push({...o,owes:st.owes});};
-  for(const g of all('SELECT * FROM fin_groups'))add(balance(groupItems(g),settlesOf(g.id)),{kind:'group',id:g.id,title:g.title});
-  for(const p of all("SELECT p.id,p.title FROM projects p WHERE p.deleted_at IS NULL AND p.space='couple' AND p.id NOT IN (SELECT project_id FROM fin_groups WHERE project_id IS NOT NULL) AND EXISTS(SELECT 1 FROM expenses e WHERE e.project_id=p.id AND e.actual>0 AND e.paid_by IS NOT NULL)"))add(balance(projRows(p.id),[]),{kind:'project',id:p.id,title:p.title});
+  for(const g of all('SELECT * FROM fin_groups'))add(balance(groupItems(g),fullSettles(g)),{kind:'group',id:g.id,title:g.title});
+  for(const p of all("SELECT p.id,p.title FROM projects p WHERE p.deleted_at IS NULL AND p.space='couple' AND p.id NOT IN (SELECT project_id FROM fin_groups WHERE project_id IS NOT NULL) AND EXISTS(SELECT 1 FROM expenses e WHERE e.project_id=p.id AND e.actual>0 AND e.paid_by IS NOT NULL)"))add(balance(projRows(p.id),projSettles(p.id)),{kind:'project',id:p.id,title:p.title});
   const a=users[0]?.id,b=users[1]?.id,d=r2(net[a]||0);return {owes:users.length===2&&Math.abs(d)>=0.01?{from:d>0?b:a,to:d>0?a:b,amount:Math.abs(d)}:null,sources:sources.sort((x,y)=>y.owes.amount-x.owes.amount).slice(0,5),any};}
  const groupRow=id=>get('SELECT g.*,p.title AS project_title FROM fin_groups g LEFT JOIN projects p ON p.id=g.project_id AND p.deleted_at IS NULL WHERE g.id=?',id);
  const settlesOf=id=>all('SELECT s.*,a.name AS from_name,b.name AS to_name FROM fin_settles s LEFT JOIN users a ON a.id=s.from_user LEFT JOIN users b ON b.id=s.to_user WHERE s.group_id=? ORDER BY s.date DESC,s.created_at DESC,s.rowid DESC',id);
- function groupDetail(id){const g=groupRow(id)||fail(404,'Carpeta no encontrada'),items=groupItems(g),settles=settlesOf(g.id);return {group:g,items,settles,stats:balance(items,settles)};}
+ function groupDetail(id){const g=groupRow(id)||fail(404,'Carpeta no encontrada'),items=groupItems(g),settles=settlesOf(g.id);return {group:g,items,settles,stats:balance(items,fullSettles(g))};}
  function groupList(){return all('SELECT g.*,p.title AS project_title FROM fin_groups g LEFT JOIN projects p ON p.id=g.project_id AND p.deleted_at IS NULL ORDER BY COALESCE(g.start_date,substr(g.created_at,1,10)) DESC').map(g=>{const st=balance(groupItems(g),settlesOf(g.id));return {...g,total:st.total,count:st.count,owes:st.owes,people:st.people};});}
  function groupFields(b,p={}){const pid=b.project_id===undefined?(p.project_id||null):(b.project_id?(get("SELECT id FROM projects WHERE id=? AND deleted_at IS NULL",String(b.project_id))?.id||fail(404,'Viaje o plan no encontrado')):null);
   const proj=pid?get('SELECT title,start_date,end_date FROM projects WHERE id=?',pid):null;
@@ -91,7 +94,7 @@ export function createFinanzas(d){
   const gr=path.match(/^\/api\/finance\/groups(?:\/([a-f0-9-]{36})(\/settle)?)?$/);
   if(gr){const row=gr[1]?groupRow(gr[1])||fail(404,'Carpeta no encontrada'):null;
    if(row&&!gr[2]&&req.method==='GET'){respond(res,200,groupDetail(row.id));return true;}
-   if(gr[2]){if(req.method!=='POST')fail(405,'Método no permitido');const b=await readBody(req),st=balance(groupItems(row),settlesOf(row.id)),from=b.from?String(b.from):st.owes?.from,to=b.to?String(b.to):st.owes?.to;
+   if(gr[2]){if(req.method!=='POST')fail(405,'Método no permitido');const b=await readBody(req),st=balance(groupItems(row),fullSettles(row)),from=b.from?String(b.from):st.owes?.from,to=b.to?String(b.to):st.owes?.to;
     if(!from||!to||from===to||!get('SELECT 1 FROM users WHERE id=?',from)||!get('SELECT 1 FROM users WHERE id=?',to))fail(400,'No hay nada pendiente que saldar');const amount=b.amount===undefined?st.owes?.amount:money(b.amount);if(!(amount>0))fail(400,'El importe tiene que ser mayor que 0');
     run('INSERT INTO fin_settles(id,group_id,from_user,to_user,amount,date,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',uid(),row.id,from,to,r2(amount),validDate(b.date)||today(),u.id,now());
     const nm=id=>(get('SELECT name FROM users WHERE id=?',id)?.name||'').split(' ')[0];logFree(u,'couple',`saldó cuentas en «${row.title}»`,`${nm(from)} → ${nm(to)} · ${eur(amount)}`);respond(res,201,groupDetail(row.id));return true;}
@@ -102,6 +105,11 @@ export function createFinanzas(d){
     else{id=uid();run('INSERT INTO fin_groups(id,title,icon,color,project_id,start_date,end_date,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,f.title,f.icon,f.color,f.project_id,f.start_date,f.end_date,u.id,t,t);logFree(u,'couple','creó una carpeta de gastos',f.title);}
     respond(res,row?200:201,groupDetail(id));return true;}
    fail(405,'Método no permitido');}
+  const pm=path.match(/^\/api\/finance\/projects\/([a-f0-9-]{36})\/settle$/);
+  if(pm&&req.method==='POST'){const p=get("SELECT id,title FROM projects WHERE id=? AND deleted_at IS NULL AND space='couple'",pm[1])||fail(404,'Plan no encontrado'),g=get('SELECT * FROM fin_groups WHERE project_id=?',p.id),st=g?balance(groupItems(g),fullSettles(g)):balance(projRows(p.id),projSettles(p.id)),o=st.owes||fail(409,'No queda nada pendiente en este plan'),b=await readBody(req),amount=b.amount===undefined?o.amount:money(b.amount);if(!(amount>0)||amount>o.amount+.005)fail(400,'El importe no puede ser mayor que lo pendiente');
+   run('INSERT INTO fin_project_settles(id,project_id,from_user,to_user,amount,date,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',uid(),p.id,o.from,o.to,r2(amount),validDate(b.date)||today(),u.id,now());logFree(u,'couple','apuntó un pago en',`${p.title}: ${r2(amount).toFixed(2).replace('.',',')} €`);respond(res,200,{ok:true});return true;}
+  const pz=path.match(/^\/api\/finance\/project-settles\/([a-f0-9-]{36})$/);
+  if(pz&&req.method==='DELETE'){if(!run('DELETE FROM fin_project_settles WHERE id=?',pz[1]).changes)fail(404,'Pago no encontrado');respond(res,200,{ok:true});return true;}
   const sm=path.match(/^\/api\/finance\/settles\/([a-f0-9-]{36})$/);
   if(sm&&req.method==='DELETE'){const x=get('SELECT * FROM fin_settles WHERE id=?',sm[1])||fail(404,'Pago no encontrado');run('DELETE FROM fin_settles WHERE id=?',x.id);respond(res,200,groupDetail(x.group_id));return true;}
   if(path==='/api/finance/budgets'&&req.method==='PUT'){const b=await readBody(req),l=b.limits&&typeof b.limits==='object'?b.limits:fail(400,'Faltan los límites');
