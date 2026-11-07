@@ -49,7 +49,8 @@ if ($cola -gt 0) {
         $trozos = New-Object System.Text.StringBuilder
         $vacio = $json.Substring(0, $cola).EndsWith('"files":[]')
         foreach ($n in $nombres) {
-            $r = Invoke-WebRequest -Uri "$Url/api/snapshot/file/$n" -WebSession $session -Headers @{Origin=$Url} -TimeoutSec 60 -UseBasicParsing
+            try { $r = Invoke-WebRequest -Uri "$Url/api/snapshot/file/$n" -WebSession $session -Headers @{Origin=$Url} -TimeoutSec 60 -UseBasicParsing }
+            catch { if ($_.Exception.Response.StatusCode.value__ -eq 404) { Write-Warning "Archivo no servido por la version en vivo: $n"; continue } else { throw } }
             if ($trozos.Length -or -not $vacio) { [void]$trozos.Append(',') }
             [void]$trozos.Append($r.Content)
         }
