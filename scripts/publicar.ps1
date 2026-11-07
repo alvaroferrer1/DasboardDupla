@@ -13,6 +13,18 @@ Set-Location $Root
 function Paso([string]$t) { Write-Host "`n== $t" -ForegroundColor Cyan }
 function Check-Exit([string]$Label) { if ($LASTEXITCODE -ne 0) { throw "$Label ha fallado (codigo $LASTEXITCODE). NO se publica." } }
 
+# Si el operador corta la IP de la web (bloqueos en dias de futbol), se entra por otra de Cloudflare.
+$Ruta = $null
+$tcp = New-Object Net.Sockets.TcpClient
+try { $directo = $tcp.ConnectAsync(([Uri]$Url).Host, 443).Wait(6000) } catch { $directo = $false } finally { $tcp.Close() }
+if (-not $directo) {
+    Write-Host 'Sin ruta directa a la web: se usa la ruta alternativa de Cloudflare.' -ForegroundColor Yellow
+    $Ruta = Start-Process node -ArgumentList ('"' + (Join-Path $PSScriptRoot 'ruta-cloudflare.mjs') + '"') -PassThru -WindowStyle Hidden
+    Start-Sleep -Seconds 1
+    $PSDefaultParameterValues['Invoke-RestMethod:Proxy'] = 'http://127.0.0.1:8899'
+    $PSDefaultParameterValues['Invoke-WebRequest:Proxy'] = 'http://127.0.0.1:8899'
+}
+
 Paso 'Identidad del Worker y Durable Object'
 $Config = Get-Content 'wrangler.jsonc' -Raw
 $Worker = Get-Content 'edge\worker.mjs' -Raw
@@ -102,4 +114,5 @@ Paso 'Copia del codigo en GitHub (lo publicado = lo que hay en GitHub)'
 $gh = if ($LASTEXITCODE -eq 0) { 'GitHub = web publicada.' } else { 'AVISO: no se pudo subir a GitHub; ejecuta: git push origin main --tags' }
 
 Write-Host "`nPUBLICADO Y VERIFICADO: $tag ($Url)" -ForegroundColor Green
+if ($Ruta) { Stop-Process -Id $Ruta.Id -ErrorAction SilentlyContinue }
 Write-Host "Comprobado: salud OK, cuentas reconocidas, codigo en vivo = codigo local, copia de datos guardada. $gh"

@@ -1418,7 +1418,7 @@ h1,h2,h3,.kpi b,.fk-v{font-family:var(--dt-display);letter-spacing:-.02em}
  .page.h6>*{grid-column:1/-1;margin:0;min-width:0}
  .page.h6>.h6-grid{display:contents}
  .page.h6>.h6-hero{grid-column:span 8;order:1}.page.h6>.h6-today{grid-column:span 4;order:2}
- .page.h6>.h6-hero:not(:has(+ .h6-today)){grid-column:1/-1}
+ .page.h6>.h6-hero:not(:has(~ .h6-today)){grid-column:1/-1}
  .page.h6>.section-heading{order:3}.page.h6>.space-tiles{order:4}
  .page.h6>.h6-quick{order:5}
  .page.h6>.stat-grid{order:6}
