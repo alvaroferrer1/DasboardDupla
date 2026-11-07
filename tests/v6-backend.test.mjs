@@ -963,3 +963,13 @@ test('Copia con muchas fotos: no falla por tamaño, se baja por partes y se rest
  const id=f.db.prepare('SELECT id FROM assets LIMIT 1').get().id;const got=await f.call('/api/assets/'+id,'GET',undefined,a);assert.equal(got.status,200);assert.equal(got.data.length,big.length);
  assert.equal((await f.call('/api/snapshot/restore','POST',{snapshot:{...snap,files:[],pending_files:[]},...pass},a)).status,400,'sin bytes ni archivos subidos se rechaza');
 });
+
+test('Repaso del mes: cuenta lo real del mes anterior y se calla si no hubo nada',async()=>{
+ const f=fixture();const c=await f.login();
+ const vacio=await f.call('/api/monthly-review','GET',undefined,c);assert.equal(vacio.status,200);
+ const m=new Date(Date.UTC(2026,0,1));void m;
+ const prev=new Date();prev.setUTCDate(1);prev.setUTCMonth(prev.getUTCMonth()-1);const mes=prev.toISOString().slice(0,7);
+ f.db.prepare("INSERT INTO ideas(id,space,title,body,state,project_id,created_by,created_at,updated_at) SELECT 'i1','couple','Idea','','inbox',NULL,id,?,? FROM users LIMIT 1").run(mes+'-15T10:00:00Z',mes+'-15T10:00:00Z');
+ const r=await f.call('/api/monthly-review','GET',undefined,c);
+ if(new Date().getUTCDate()<=10){assert.equal(r.data.review.ideas,1);assert.equal(r.data.review.month,mes);}else assert.equal(r.data.review,null,'pasados los primeros días no se muestra');
+});

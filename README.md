@@ -125,6 +125,8 @@ Videollamada propia (WebRTC directo, señalización por la API) o **Google Meet*
 <td valign="top">
 
 ### 🔔 Avisos de verdad
+
+Agrupados por día. En Inicio tenéis el repaso del mes y una guía de puesta a punto para empezar. Tareas tiene buscador, Finanzas descarga a Excel y hay plantillas de playa, ciudad y ruta en coche.
 Notificaciones del sistema en el **PC y en el iPhone**, aunque DUPLA esté cerrada. Push cifrado de extremo a extremo (RFC 8291), filtros, avisos marcados como importantes y estado de entrega por dispositivo. **Resumen de cada mañana** a las 8:00, también como evento en Google Calendar para que el móvil avise siempre.
 
 </td>
@@ -152,6 +154,7 @@ Dupla **no es un chatbot**: es un agente que consulta vuestros datos reales con 
 
 - Crea proyectos, viajes, tareas, planes, gastos e ideas, y **eventos en Google Calendar**, con Meet si hace falta.
 - Revisa con el **Director General** qué va mal o se retrasa.
+- Sus sugerencias cambian según lo que tenéis entre manos: el próximo viaje o las tareas retrasadas.
 - Podéis **detener** una respuesta, **reintentar** lo que falle y **deshacer** lo confirmado, también una tarea marcada como hecha.
 - Consulta los **avisos del destino** antes de planificar un viaje.
 - Prepara **PDFs** (itinerario, dossier, presupuesto para clientes).

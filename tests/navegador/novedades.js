@@ -1,0 +1,6 @@
+// Buscar en Tareas, avisos por día y plantillas de viaje.
+(async()=>{const w=ms=>new Promise(r=>setTimeout(r,ms)),f=[];await w(900);location.hash='#/tareas';await w(1300);
+const q=document.querySelector('#bd-search');if(!q)f.push('sin buscador');else{const antes=document.querySelectorAll('.bd-card').length;q.focus();q.value='zzz-no-existe';q.dispatchEvent(new Event('input',{bubbles:true}));await w(300);if(document.querySelectorAll('.bd-card').length!==0)f.push('no filtra');if(document.activeElement?.id!=='bd-search')f.push('pierde el foco');q.value='';document.querySelector('#bd-search').value='';document.querySelector('#bd-search').dispatchEvent(new Event('input',{bubbles:true}));await w(300);if(document.querySelectorAll('.bd-card').length!==antes)f.push('no restaura');}
+location.hash='#/avisos';await w(1200);if(!document.querySelector('.nt-day'))f.push('avisos sin agrupar');
+location.hash='#/nuestro-espacio';await w(1000);document.querySelector('[data-action="new-trip"],[data-action="new-project"]')?.click();await w(600);const sel=document.querySelector('#modal-root select[name="template"]');if(!sel)f.push('sin selector de plantilla');else if(![...sel.options].some(o=>o.value==='trip_beach'))f.push('sin plantilla de playa');
+if(f.length)console.error('NOVEDADES: '+f.join(' | '));})();
