@@ -8,6 +8,7 @@ export function hourlyJobs(app,env){
   ['avisos-dupla',()=>app.processAgentAlerts()],
   // Automation rules and third-party webhooks stay paused until the owners explicitly enable them.
   ...(env.DUPLA_AUTOMATIONS_ENABLED==='true'?[['automations',()=>app.processAutomationRules()]]:[]),
+  ['banco',()=>app.processBankSync?.()],
   ['limpieza',()=>app.processCleanup?.()],
   ['backup',()=>app.processScheduledBackup()],
   ['drive',()=>app.processDriveBackup()],

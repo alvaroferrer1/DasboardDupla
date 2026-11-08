@@ -94,6 +94,10 @@ export function createDB(storage) {
  sql.exec("CREATE TABLE IF NOT EXISTS us_habit_logs(id TEXT PRIMARY KEY,habit_id TEXT NOT NULL REFERENCES us_habits(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),day TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(habit_id,user_id,day))");
  sql.exec("CREATE TABLE IF NOT EXISTS us_profiles(user_id TEXT PRIMARY KEY REFERENCES users(id),love_language TEXT NOT NULL,scores TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL)");
  sql.exec('CREATE INDEX IF NOT EXISTS us_notes_to ON us_notes(to_id,read_at)');
+ // Banco conectado: conexiones de cada uno, «state» de un solo uso y movimientos ya importados (sin duplicados).
+ sql.exec("CREATE TABLE IF NOT EXISTS bank_links(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),session_id TEXT NOT NULL,bank TEXT NOT NULL,accounts TEXT NOT NULL DEFAULT '[]',valid_until TEXT,created_at TEXT NOT NULL,last_sync TEXT,last_error TEXT)");
+ sql.exec("CREATE TABLE IF NOT EXISTS bank_pending(state TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),bank TEXT NOT NULL,created_at TEXT NOT NULL)");
+ sql.exec("CREATE TABLE IF NOT EXISTS bank_tx(ref TEXT PRIMARY KEY,move_id TEXT,link_id TEXT,created_at TEXT NOT NULL)");
  // Cuaderno de pareja: 11 listas, hasta 20 respuestas de cada uno.
  sql.exec("CREATE TABLE IF NOT EXISTS us_book(list_no INTEGER NOT NULL CHECK(list_no BETWEEN 1 AND 11),user_id TEXT NOT NULL REFERENCES users(id),pos INTEGER NOT NULL CHECK(pos BETWEEN 1 AND 20),text TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL,PRIMARY KEY(list_no,user_id,pos))");
  // Ideas: a quién le gusta cada una y para cuándo la veis.
@@ -116,6 +120,7 @@ export function createDB(storage) {
  sql.exec("CREATE TABLE IF NOT EXISTS fin_settles(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES fin_groups(id) ON DELETE CASCADE,from_user TEXT NOT NULL REFERENCES users(id),to_user TEXT NOT NULL REFERENCES users(id),amount REAL NOT NULL,date TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL)");
  const fmCols=sql.exec('PRAGMA table_info(fin_moves)').toArray().map(r=>r.name);
  if(!fmCols.includes('group_id'))sql.exec('ALTER TABLE fin_moves ADD COLUMN group_id TEXT');
+ const fbCols=sql.exec('PRAGMA table_info(fin_bills)').toArray().map(r=>r.name);if(fbCols.length&&!fbCols.includes('owner'))sql.exec("ALTER TABLE fin_bills ADD COLUMN owner TEXT NOT NULL DEFAULT ''");
  if(!fmCols.includes('fixed'))sql.exec('ALTER TABLE fin_moves ADD COLUMN fixed INTEGER NOT NULL DEFAULT 0');
  if(!fmCols.includes('split'))sql.exec("ALTER TABLE fin_moves ADD COLUMN split TEXT NOT NULL DEFAULT 'half'");
  sql.exec('CREATE INDEX IF NOT EXISTS fin_moves_group ON fin_moves(group_id)');

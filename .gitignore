@@ -25,3 +25,5 @@ logs-private/
 firebase/functions/node_modules/
 firebase/.firebase/
 firebase/firebase-debug.log
+
+*.pem

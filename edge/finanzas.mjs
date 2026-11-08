@@ -36,7 +36,7 @@ export function createFinanzas(d){
   const recent=moves('0000-01-01','9999-12-31').sort((a,b)=>(b.date+(b.created_at||'')).localeCompare(a.date+(a.created_at||''))).slice(0,6);
   return {period,label:p.label,vs:p.vs,from:p.from,to:p.to,today:t,
    kpis:{income,expense,saving:r2(income-expense),saving_pct:income>0?Math.round((income-expense)/income*100):null,income_prev:sum(prev,'in'),expense_prev:sum(prev,'out'),bills_pending:bills.length,bill_next:bills[0]?.due_date||null},
-   series:p.series.map(s=>{const xs=moves(s.from,s.to);return {label:s.label,current:s.current,income:sum(xs,'in'),expense:sum(xs,'out')};}),
+   series:p.series.map(s=>{const xs=moves(s.from,s.to);return {label:s.label,current:s.current,from:s.from,to:s.to,income:sum(xs,'in'),expense:sum(xs,'out')};}),
    budgets:OUT.map(c=>({category:c,label:FIN_CATS[c][0],color:FIN_CATS[c][1],limit:limits[c]?r2(limits[c]*p.months):0,monthly:limits[c]||0,spent:r2(cur.filter(x=>x.kind==='out'&&x.category===c).reduce((a,x)=>a+Number(x.amount),0))})).filter(b=>b.limit||b.spent),
    goals:all('SELECT * FROM fin_goals ORDER BY created_at'),bills,recent,debts:debts(),cats:FIN_CATS,icons:ICONS,...porPersona(cur,prev)};}
 
@@ -49,30 +49,53 @@ export function createFinanzas(d){
  function porPersona(cur,prev){const users=all('SELECT id,name FROM users ORDER BY name'),ids=users.map(x=>x.id);
   const people=users.map(us=>{const c=cuentaDe(us.id,cur,ids),pv=cuentaDe(us.id,prev,ids);
    return {id:us.id,name:us.name,income:r2(c.income),income_fixed:r2(c.income_fixed),income_var:r2(c.income_var),paid:r2(c.paid),share:r2(c.share),fixed_out:r2(c.fixed_out),share_prev:r2(pv.share),income_prev:r2(pv.income),left:r2(c.income-c.share),
-    top:Object.entries(c.cats).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([k,v])=>({category:k,label:FIN_CATS[k]?.[0]||k,color:FIN_CATS[k]?.[1]||'#7d8597',amount:r2(v)}))};});
+    top:Object.entries(c.cats).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([k,v])=>({category:k,label:FIN_CATS[k]?.[0]||k,color:FIN_CATS[k]?.[1]||'#7d8597',amount:r2(v)})),
+    recent:all('SELECT id,kind,amount,category,title,date,fixed,split FROM fin_moves WHERE paid_by=? AND group_id IS NULL ORDER BY date DESC,created_at DESC LIMIT 6',us.id),
+    fixed:all('SELECT id,kind,amount,category,title,date FROM fin_moves WHERE paid_by=? AND fixed=1 AND id IN (SELECT id FROM fin_moves m2 WHERE m2.paid_by=fin_moves.paid_by AND m2.title=fin_moves.title ORDER BY date DESC LIMIT 1) ORDER BY kind,amount DESC LIMIT 10',us.id),
+    bills:all("SELECT * FROM fin_bills WHERE paid_at IS NULL AND owner=? ORDER BY due_date",us.id)};});
   const shared=cur.filter(x=>x.kind==='out'&&(!x.paid_by||x.split==='half')),groups=groupList();
   return {people,joint:{common:r2(shared.reduce((a,x)=>a+Number(x.amount||0),0)),common_count:shared.length,shared_income:r2(cur.filter(x=>x.kind==='in'&&!x.paid_by).reduce((a,x)=>a+Number(x.amount||0),0)),
-   groups:groups.slice(0,4).map(g=>({id:g.id,title:g.title,icon:g.icon,color:g.color,total:g.total,count:g.count,owes:g.owes,start_date:g.start_date})),groups_total:r2(groups.reduce((a,g)=>a+(g.total||0),0))}};}
+   groups:groups.slice(0,4).map(g=>({id:g.id,title:g.title,icon:g.icon,color:g.color,total:g.total,count:g.count,owes:g.owes,start_date:g.start_date})),groups_total:r2(groups.reduce((a,g)=>a+(g.total||0),0)),
+   projects:all("SELECT p.id,p.title,p.start_date,COALESCE(SUM(e.actual),0) AS spent,COALESCE(SUM(e.estimated),0) AS planned FROM projects p JOIN expenses e ON e.project_id=p.id WHERE p.deleted_at IS NULL AND p.space='couple' GROUP BY p.id HAVING spent>0 OR planned>0 ORDER BY COALESCE(p.start_date,p.created_at) DESC LIMIT 5").map(x=>({...x,spent:r2(x.spent),planned:r2(x.planned)})),
+   recent:all("SELECT id,kind,amount,category,title,date,paid_by,split FROM fin_moves WHERE group_id IS NULL AND kind='out' AND (paid_by IS NULL OR split='half') ORDER BY date DESC,created_at DESC LIMIT 6"),
+   bills:all("SELECT * FROM fin_bills WHERE paid_at IS NULL AND owner='' ORDER BY due_date")}};}
  // Análisis: primero hechos calculados (siempre ciertos); la IA solo los cuenta como una persona.
  const pct=(a,b)=>b>0?Math.round((a-b)/b*100):null;
+ function hechosDe(s,who){const nombre=id=>(s.people.find(p=>p.id===id)?.name||'').split(' ')[0];
+  if(who&&who!=='all'&&who!=='joint'){const p=s.people.find(x=>x.id===who);if(!p)return [];const f=[],v=pct(p.share,p.share_prev),first=nombre(p.id);
+   if(p.income>0)f.push({tipo:p.left>=0?'bien':'ojo',texto:p.left>=0?`A ${first} le quedan ${eur(p.left)} de ${eur(p.income)} este periodo.`:`${first} gasta ${eur(-p.left)} más de lo que ingresa.`});
+   if(p.share_prev>0&&v!==null&&Math.abs(v)>=10)f.push({tipo:v<0?'bien':'ojo',texto:`Su parte de los gastos ${v<0?'baja':'sube'} un ${Math.abs(v)} % respecto a ${s.vs}.`,action:{do:'filter',who:p.id,label:'Ver sus gastos'}});
+   const t=p.top[0];if(t)f.push({tipo:'info',texto:`Donde más se le va: ${t.label.toLowerCase()} (${eur(t.amount)}).`,action:{do:'filter',who:p.id,cat:t.category,label:'Ver gastos de '+t.label.toLowerCase()}});
+   if(p.income>0&&p.income_fixed===0)f.push({tipo:'idea',texto:'No hay ingresos marcados como fijos: márcalos para saber cuánto entra seguro cada mes.',action:{do:'move',who:p.id,kind:'in',fixed:true,label:'Añadir ingreso fijo'}});
+   if(!p.income)f.push({tipo:'idea',texto:`Aún no hay ingresos de ${first} este periodo.`,action:{do:'move',who:p.id,kind:'in',label:'Apuntar ingreso'}});
+   for(const b of p.bills.slice(0,2))f.push({tipo:b.due_date<s.today?'ojo':'aviso',texto:`${b.due_date<s.today?'Venció':'Vence'} «${b.title}» (${eur(b.amount)}) el ${b.due_date.split('-').reverse().join('/')}.`,action:{do:'pay',id:b.id,label:'Pagar'}});
+   return f;}
+  if(who==='joint'){const f=[],J=s.joint;f.push({tipo:'info',texto:`Gastos a medias: ${eur(J.common)} en ${J.common_count} ${J.common_count===1?'gasto':'gastos'}.`,action:{do:'move',kind:'out',split:'half',label:'Apuntar gasto común'}});
+   for(const pj of J.projects.slice(0,3)){if(pj.planned>0&&pj.spent>pj.planned)f.push({tipo:'ojo',texto:`«${pj.title}» va por ${eur(pj.spent)} de ${eur(pj.planned)} previstos.`,action:{do:'project',id:pj.id,label:'Abrir'}});else if(pj.planned>0)f.push({tipo:'bien',texto:`«${pj.title}»: ${eur(pj.spent)} de ${eur(pj.planned)} previstos (${Math.round(pj.spent/pj.planned*100)} %).`,action:{do:'project',id:pj.id,label:'Abrir'}});}
+   if(s.debts?.owes)f.push({tipo:'aviso',texto:`${nombre(s.debts.owes.from)} le debe ${eur(s.debts.owes.amount)} a ${nombre(s.debts.owes.to)}.`,action:{do:'groups',label:'Ver y saldar'}});
+   for(const b of J.bills.slice(0,2))f.push({tipo:'aviso',texto:`Factura de los dos: «${b.title}» (${eur(b.amount)}) el ${b.due_date.split('-').reverse().join('/')}.`,action:{do:'pay',id:b.id,label:'Pagar'}});
+   for(const g of s.goals){if(g.target>0&&g.saved<g.target){const falta=r2(g.target-g.saved);f.push({tipo:'idea',texto:`Para «${g.title}» faltan ${eur(falta)}: ${eur(Math.ceil(falta/6))} al mes y en medio año lo tenéis.`,action:{do:'goal',id:g.id,label:'Aportar'}});}}
+   return f;}
+  return hechos(s);}
  function hechos(s){const f=[],k=s.kpis;
   if(k.expense_prev>0){const v=pct(k.expense,k.expense_prev);if(v!==null&&Math.abs(v)>=5)f.push({tipo:v<0?'bien':'ojo',texto:`Gastáis un ${Math.abs(v)} % ${v<0?'menos':'más'} que en ${s.vs} (${eur(k.expense)} frente a ${eur(k.expense_prev)}).`});}
   if(k.income>0)f.push({tipo:k.saving>=0?'bien':'ojo',texto:k.saving>=0?`Ahorráis ${eur(k.saving)}, el ${k.saving_pct} % de lo que entra.`:`Este periodo sale ${eur(-k.saving)} más de lo que entra.`});
-  for(const b of s.budgets){if(b.limit&&b.spent>b.limit)f.push({tipo:'ojo',texto:`${b.label} pasa del presupuesto: ${eur(b.spent)} de ${eur(b.limit)}.`});else if(b.limit&&b.spent>b.limit*0.85)f.push({tipo:'aviso',texto:`${b.label} va por el ${Math.round(b.spent/b.limit*100)} % del presupuesto.`});}
+  for(const b of s.budgets){if(b.limit&&b.spent>b.limit)f.push({tipo:'ojo',texto:`${b.label} pasa del presupuesto: ${eur(b.spent)} de ${eur(b.limit)}.`,action:{do:'filter',cat:b.category,label:'Ver en qué'}});else if(b.limit&&b.spent>b.limit*0.85)f.push({tipo:'aviso',texto:`${b.label} va por el ${Math.round(b.spent/b.limit*100)} % del presupuesto.`,action:{do:'budgets',label:'Ajustar límites'}});}
   const top=s.people.flatMap(p=>p.top.slice(0,1).map(t=>({p,t})));for(const {p,t} of top)if(t.amount>0)f.push({tipo:'info',texto:`Donde más se le va el dinero a ${p.name.split(' ')[0]} es ${t.label.toLowerCase()} (${eur(t.amount)}).`});
   for(const p of s.people){const v=pct(p.share,p.share_prev);if(p.share_prev>0&&v!==null&&v<=-15)f.push({tipo:'bien',texto:`${p.name.split(' ')[0]} ha recortado su gasto un ${-v} % respecto a ${s.vs}.`});if(p.income>0&&p.income_fixed===0)f.push({tipo:'idea',texto:`${p.name.split(' ')[0]} no tiene ingresos marcados como fijos: marcadlos para ver cuánto queda seguro cada mes.`});}
+  if(!s.budgets.some(b=>b.limit))f.push({tipo:'idea',texto:'Aún no tenéis límites por categoría: poned uno en lo que más gastáis y Dupla os avisará al acercaros.',action:{do:'budgets',label:'Poner límites'}});
   if(k.bills_pending)f.push({tipo:'aviso',texto:`Tenéis ${k.bills_pending} ${k.bills_pending===1?'factura pendiente':'facturas pendientes'}${k.bill_next?`, la próxima el ${k.bill_next.split('-').reverse().join('/')}`:''}.`});
   if(s.debts?.owes)f.push({tipo:'info',texto:`Queda por saldar ${eur(s.debts.owes.amount)} entre vosotros.`});
   for(const g of s.goals){if(g.target>0&&g.saved<g.target){const falta=r2(g.target-g.saved);f.push({tipo:'idea',texto:`Para «${g.title}» faltan ${eur(falta)}; con ${eur(Math.ceil(falta/6))} al mes lo tenéis en medio año.`});}}
   if(!f.length)f.push({tipo:'info',texto:'Aún hay pocos movimientos este periodo. Apuntad ingresos y gastos y aquí veréis el análisis.'});
   return f.slice(0,10);}
- async function analisis(period){const s=summary(period),facts=hechos(s),key=JSON.stringify(facts);
-  const cache=get("SELECT value FROM shared_settings WHERE key='fin_ai'");const c=cache?JSON.parse(cache.value):null;
+ async function analisis(period,who='all'){const s=summary(period),facts=hechosDe(s,who),key=JSON.stringify([who,facts]);
+  const cache=get("SELECT value FROM shared_settings WHERE key=?",'fin_ai_'+who);const c=cache?JSON.parse(cache.value):null;
   if(c&&c.key===key&&c.period===period)return {facts,text:c.text,generated:true,cached:true,label:s.label};
   if(!env?.AI)return {facts,text:null,generated:false,label:s.label};
   try{const r=await env.AI.run(env.AI_MODEL||model,{messages:[{role:'system',content:'Eres Dupla, la asesora financiera cercana de una pareja (Álvaro y Angie). Escribe en español de España, como una amiga que sabe de dinero: cálida, directa y concreta, sin tecnicismos ni frases hechas. Usa SOLO los datos que te doy; no inventes cifras. Formato: un párrafo corto de resumen (2-3 frases) y luego 3 a 5 consejos prácticos, cada uno en una línea que empiece por «- ». Felicita lo que va bien y di claramente dónde se puede mejorar. Sin markdown ni títulos.'},{role:'user',content:`Periodo: ${s.label}. Datos:\n${facts.map(x=>'- '+x.texto).join('\n')}\nIngresos ${eur(s.kpis.income)}, gastos ${eur(s.kpis.expense)}.\n${s.people.map(p=>`${p.name.split(' ')[0]}: gana ${eur(p.income)} (fijo ${eur(p.income_fixed)}), le corresponde gastar ${eur(p.share)}, ha pagado ${eur(p.paid)}.`).join('\n')}`}],max_tokens:700});
    const text=String(r.choices?.[0]?.message?.content||r.response||'').trim().slice(0,2500);if(!text)return {facts,text:null,generated:false,label:s.label};
-   run("INSERT INTO shared_settings(key,value,updated_by,updated_at) VALUES('fin_ai',?,NULL,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",JSON.stringify({key,period,text}),now());
+   run("INSERT INTO shared_settings(key,value,updated_by,updated_at) VALUES(?,?,NULL,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",'fin_ai_'+who,JSON.stringify({key,period,text}),now());
    return {facts,text,generated:true,label:s.label};}catch{return {facts,text:null,generated:false,label:s.label};}}
 
  function moveFields(b,prev={}){const kind=b.kind===undefined?prev.kind:choice(b.kind,['in','out']);
@@ -118,7 +141,12 @@ export function createFinanzas(d){
  const eur=n=>{const v=Number(n);return v.toLocaleString('es-ES',{minimumFractionDigits:Number.isInteger(v)?0:2,maximumFractionDigits:2,useGrouping:'always'})+' €';};
 
  async function route(req,res,url,u){const path=url.pathname;if(!path.startsWith('/api/finance'))return false;
-  if(path==='/api/finance/insights'&&req.method==='GET'){respond(res,200,await analisis(choice(url.searchParams.get('period')||'month',['month','quarter','year'])));return true;}
+  if(path==='/api/finance/insights'&&req.method==='GET'){const who=url.searchParams.get('who')||'all';if(!['all','joint'].includes(who)&&!get('SELECT 1 FROM users WHERE id=?',who))fail(400,'Persona no válida');respond(res,200,await analisis(choice(url.searchParams.get('period')||'month',['month','quarter','year']),who));return true;}
+  // Pregunta libre sobre vuestras cuentas: responde con vuestros números, en español y como una persona.
+  if(path==='/api/finance/ask'&&req.method==='POST'){const b=await readBody(req),q=requireText(b.question,'Pregunta',400),s=summary('month'),facts=[...hechosDe(s,'all'),...hechosDe(s,'joint')].map(x=>'- '+x.texto).join('\n');
+   if(!env?.AI){respond(res,200,{answer:'Ahora mismo la IA no está disponible. Esto es lo que veo en vuestras cuentas:\n'+facts,generated:false});return true;}
+   try{const r=await env.AI.run(env.AI_MODEL||model,{messages:[{role:'system',content:'Eres Dupla, asesora financiera cercana de Álvaro y Angie. Responde SOLO en español de España, en 2 a 5 frases, cálida y concreta, usando únicamente estos datos (no inventes cifras). Si piden ahorrar, da pasos prácticos con importes. Sin markdown ni razonamiento.'},{role:'user',content:`Datos de ${s.label}: ingresos ${eur(s.kpis.income)}, gastos ${eur(s.kpis.expense)}.\n${s.people.map(p=>`${p.name.split(' ')[0]}: gana ${eur(p.income)}, le toca gastar ${eur(p.share)}, le queda ${eur(p.left)}; donde más gasta: ${p.top.map(t=>t.label+' '+eur(t.amount)).join(', ')||'nada'}.`).join('\n')}\n${facts}\nPregunta: ${q}`}],max_tokens:500});
+    let a=String(r.choices?.[0]?.message?.content||r.response||'').trim();if(/<\|message\|>/.test(a))a=a.split('<|message|>').pop();a=a.replace(/<\|[^|]{1,40}\|>/g,'').trim().slice(0,1500);respond(res,200,{answer:a||'No he podido responder ahora. Prueba otra vez.',generated:!!a});}catch{respond(res,200,{answer:'No he podido consultar la IA ahora. Esto es lo que veo:\n'+facts,generated:false});}return true;}
   if(path==='/api/finance'&&req.method==='GET'){respond(res,200,summary(choice(url.searchParams.get('period')||'month',['month','quarter','year'])));return true;}
   if(path==='/api/finance/moves'&&req.method==='GET'){const t=today(),from=validDate(url.searchParams.get('from'))||`${+t.slice(0,4)-1}${t.slice(4)}`,to=validDate(url.searchParams.get('to'))||t;
    respond(res,200,{items:moves(from,to).sort((a,b)=>(b.date+(b.created_at||'')).localeCompare(a.date+(a.created_at||''))),from,to});return true;}
@@ -167,14 +195,15 @@ export function createFinanzas(d){
   const bl=path.match(/^\/api\/finance\/bills(?:\/([a-f0-9-]{36}))?(\/pay)?$/);
   if(bl&&['POST','PATCH','DELETE'].includes(req.method)){const row=bl[1]?get('SELECT * FROM fin_bills WHERE id=?',bl[1])||fail(404,'Factura no encontrada'):null;if(!!row!==(req.method!=='POST'||!!bl[2]))fail(405,'Método no permitido');
    if(bl[2]){if(req.method!=='POST')fail(405,'Método no permitido');if(row.paid_at)fail(409,'Esta factura ya está pagada');const t=now(),d=today();
-    run('INSERT INTO fin_moves(id,kind,amount,category,title,date,paid_by,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',uid(),'out',row.amount,row.category,row.title,d,u.id,u.id,t,t);
+    // La factura de uno la paga esa persona (solo suya); la de los dos, quien la paga y a medias.
+    run('INSERT INTO fin_moves(id,kind,amount,category,title,date,paid_by,split,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',uid(),'out',row.amount,row.category,row.title,d,row.owner||u.id,row.owner?'payer':'half',u.id,t,t);
     if(row.repeat==='monthly')run('UPDATE fin_bills SET due_date=?,updated_at=? WHERE id=?',addMonth(row.due_date),t,row.id);else run('UPDATE fin_bills SET paid_at=?,updated_at=? WHERE id=?',t,t,row.id);
     logFree(u,'couple','pagó una factura',`${row.title} · ${eur(row.amount)}`);respond(res,200,{ok:true});return true;}
    if(req.method==='DELETE'){run('DELETE FROM fin_bills WHERE id=?',row.id);respond(res,200,{ok:true});return true;}
    const b=await readBody(req),p=row||{};
-   const f={title:b.title===undefined?p.title:requireText(b.title,'Factura',120),amount:b.amount===undefined?p.amount:(money(b.amount)||fail(400,'El importe tiene que ser mayor que 0')),category:b.category===undefined?(p.category||'hogar'):choice(b.category,OUT),due_date:b.due_date===undefined?p.due_date:(validDate(b.due_date)||fail(400,'Pon la fecha de pago')),repeat:b.repeat===undefined?(p.repeat||'none'):choice(b.repeat,['none','monthly'])};
+   const f={title:b.title===undefined?p.title:requireText(b.title,'Factura',120),amount:b.amount===undefined?p.amount:(money(b.amount)||fail(400,'El importe tiene que ser mayor que 0')),category:b.category===undefined?(p.category||'hogar'):choice(b.category,OUT),due_date:b.due_date===undefined?p.due_date:(validDate(b.due_date)||fail(400,'Pon la fecha de pago')),repeat:b.repeat===undefined?(p.repeat||'none'):choice(b.repeat,['none','monthly']),owner:b.owner===undefined?(p.owner||''):(b.owner?(get('SELECT id FROM users WHERE id=?',String(b.owner))?.id||fail(400,'Persona no válida')):'')};
    if(!f.title||!f.amount||!f.due_date)fail(400,'Faltan el nombre, el importe o la fecha');const t=now();
-   if(row)run('UPDATE fin_bills SET title=?,amount=?,category=?,due_date=?,repeat=?,updated_at=? WHERE id=?',f.title,f.amount,f.category,f.due_date,f.repeat,t,row.id);else{run('INSERT INTO fin_bills(id,title,amount,category,due_date,repeat,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',uid(),f.title,f.amount,f.category,f.due_date,f.repeat,u.id,t,t);logFree(u,'couple','añadió una factura pendiente',`${f.title} · ${eur(f.amount)} · ${f.due_date.slice(8,10)}/${f.due_date.slice(5,7)}`);}
+   if(row)run('UPDATE fin_bills SET title=?,amount=?,category=?,due_date=?,repeat=?,owner=?,updated_at=? WHERE id=?',f.title,f.amount,f.category,f.due_date,f.repeat,f.owner,t,row.id);else{run('INSERT INTO fin_bills(id,title,amount,category,due_date,repeat,owner,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',uid(),f.title,f.amount,f.category,f.due_date,f.repeat,f.owner,u.id,t,t);logFree(u,'couple','añadió una factura pendiente',`${f.title} · ${eur(f.amount)} · ${f.due_date.slice(8,10)}/${f.due_date.slice(5,7)}`);}
    respond(res,row?200:201,{ok:true});return true;}
   fail(404,'Ruta de finanzas no encontrada');}
  return {route,summary};

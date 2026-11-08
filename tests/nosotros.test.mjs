@@ -113,3 +113,48 @@ test('Chat con Dupla: la llamada escrita como texto se ejecuta y el razonamiento
  assert.equal(r.data.message.content,'Tenéis un proyecto en marcha: el viaje a Budapest.');
  assert.ok(seen.some(m=>m.role==='tool'),'la herramienta se ejecutó');assert.ok(!/analysis|<\|/.test(r.data.message.content));
 });
+
+test('Banco: conecta con Enable Banking firmando, importa sin duplicar, categoriza y el state no se reutiliza',async()=>{
+ const {generateKeyPairSync,createVerify}=await import('node:crypto');const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048,privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});
+ const calls=[];const original=globalThis.fetch;
+ globalThis.fetch=async(url,opts={})=>{const u=new URL(String(url));if(u.host!=='api.enablebanking.com')return original(url,opts);const auth=String(opts.headers?.Authorization||'');const [h,p,sig]=auth.slice(7).split('.');
+  const ok=createVerify('RSA-SHA256').update(h+'.'+p).verify(publicKey,Buffer.from(sig.replace(/-/g,'+').replace(/_/g,'/'),'base64'));calls.push({path:u.pathname,ok,kid:JSON.parse(Buffer.from(h,'base64url')).kid});
+  if(u.pathname==='/auth')return Response.json({url:'https://banco.test/login'});
+  if(u.pathname==='/sessions')return Response.json({session_id:'ses-1',accounts:[{uid:'acc-1',name:'Cuenta nómina',account_id:{iban:'ES9121000418450200051332'}}],access:{valid_until:'2027-05-01T00:00:00Z'}});
+  if(u.pathname==='/accounts/acc-1/transactions')return Response.json({transactions:[{entry_reference:'t1',booking_date:'2026-11-03',transaction_amount:{amount:'42.30',currency:'EUR'},credit_debit_indicator:'DBIT',remittance_information:['MERCADONA ZARAGOZA']},{entry_reference:'t2',booking_date:'2026-11-01',transaction_amount:{amount:'1900',currency:'EUR'},credit_debit_indicator:'CRDT',remittance_information:['NOMINA OCTUBRE']},{entry_reference:'t3',booking_date:'2026-11-04',transaction_amount:{amount:'12.99',currency:'EUR'},credit_debit_indicator:'DBIT',creditor:{name:'Netflix'}}]});
+  return Response.json({},{status:404});};
+ try{
+  const f=fixture(undefined,{ENABLE_BANKING_APP_ID:'app-123',ENABLE_BANKING_KEY:privateKey,PUBLIC_ORIGIN:'https://dupla.test'});const a=await f.login();
+  let r=await f.call('/api/bank/status','GET',undefined,a);assert.equal(r.data.configured,true);assert.equal(r.data.redirect,'https://dupla.test/api/bank/callback');
+  r=await f.call('/api/bank/connect','POST',{bank:'BBVA'},a);assert.equal(r.data.url,'https://banco.test/login');assert.ok(calls.every(c=>c.ok&&c.kid==='app-123'),'JWT firmado con la clave y el id de la app');
+  const state=f.db.prepare('SELECT state FROM bank_pending').get().state;
+  r=await f.call('/api/bank/callback?code=abc&state='+state,'GET');assert.equal(r.status,302);
+  const moves=f.db.prepare("SELECT kind,amount,category,title FROM fin_moves ORDER BY amount").all();assert.equal(moves.length,3);
+  assert.deepEqual(moves.map(m=>m.category),['ocio','comida','ingreso']);
+  r=await f.call('/api/bank/sync','POST',{},a);assert.equal(r.data.added,0);assert.equal(r.data.links[0].imported,3);assert.match(r.data.links[0].accounts[0].iban,/•+1332$/);
+  r=await f.call('/api/bank/callback?code=abc&state='+state,'GET');assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM bank_links').get().n,1,'el state no sirve dos veces');
+  const b=await f.loginAs('b@dupla.test','clave-super-b-2345');const lid=f.db.prepare('SELECT id FROM bank_links').get().id;assert.equal((await f.call('/api/bank/links/'+lid,'DELETE',undefined,b)).status,403,'solo quien conectó lo desconecta');assert.equal((await f.call('/api/bank/links/'+lid,'DELETE',undefined,a)).data.links.length,0);
+ }finally{globalThis.fetch=original;}
+});
+
+test('Banco: sin claves la pantalla explica qué falta y no llama a nadie',async()=>{
+ const f=fixture();const a=await f.login();const r=await f.call('/api/bank/status','GET',undefined,a);assert.equal(r.data.configured,false);
+ assert.equal((await f.call('/api/bank/connect','POST',{bank:'BBVA'},a)).status,503);
+});
+
+test('Finanzas 2: facturas de cada uno, fijos y últimos por persona, análisis por ámbito con acciones y pregunta',async()=>{
+ const f=fixture();const a=await f.login();const b=await f.loginAs('b@dupla.test','clave-super-b-2345');
+ const me=(await f.call('/api/me','GET',undefined,a)).data.user.id,other=(await f.call('/api/me','GET',undefined,b)).data.user.id,hoy=new Date().toISOString().slice(0,10);
+ await f.call('/api/finance/moves','POST',{kind:'in',amount:1800,title:'Nómina',date:hoy,paid_by:other,fixed:true},b);
+ await f.call('/api/finance/moves','POST',{kind:'out',amount:60,category:'ocio',title:'Cine',date:hoy,paid_by:other,split:'payer'},b);
+ assert.equal((await f.call('/api/finance/bills','POST',{title:'Gimnasio',amount:35,due_date:hoy,owner:other},a)).status,201);
+ assert.equal((await f.call('/api/finance/bills','POST',{title:'Luz',amount:50,due_date:hoy},a)).status,201);
+ let s=(await f.call('/api/finance?period=month','GET',undefined,a)).data;const pb=s.people.find(p=>p.id===other);
+ assert.equal(pb.fixed[0].title,'Nómina');assert.equal(pb.recent.length,2);assert.equal(pb.bills[0].title,'Gimnasio');assert.equal(s.joint.bills[0].title,'Luz');
+ await f.call('/api/finance/bills/'+pb.bills[0].id+'/pay','POST',{},a);
+ const mv=f.db.prepare("SELECT paid_by,split FROM fin_moves WHERE title='Gimnasio'").get();assert.equal(mv.paid_by,other);assert.equal(mv.split,'payer');
+ const ip=(await f.call('/api/finance/insights?period=month&who='+other,'GET',undefined,a)).data;assert.ok(ip.facts.some(x=>x.action));assert.ok(ip.facts.some(x=>/le quedan|gasta/.test(x.texto)));
+ const ij=(await f.call('/api/finance/insights?period=month&who=joint','GET',undefined,a)).data;assert.ok(ij.facts.some(x=>x.action?.do==='pay'));
+ assert.equal((await f.call('/api/finance/insights?who=nadie','GET',undefined,a)).status,400);
+ const q=(await f.call('/api/finance/ask','POST',{question:'¿Cómo ahorramos más?'},a)).data;assert.equal(q.generated,false);assert.match(q.answer,/veo/);
+});
