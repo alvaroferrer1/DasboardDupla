@@ -1778,9 +1778,6 @@ b>span[style*="#d6408a"]{color:#b52a6f!important}
 .bd-sum-k.is-late>span{background:var(--c-r50);color:var(--c-r600)}.bd-sum-k.is-late b{color:var(--c-r600)}.bd-sum-k.is-today>span{background:var(--c-a50);color:var(--c-a700)}.bd-sum-k:active{transform:scale(.98)}
 .bd-sum-load{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}.bd-sum-load small{width:100%;color:var(--c-n500);font-size:12px;font-weight:600}.bd-sum-load span{display:inline-flex;align-items:center;gap:6px;font-size:13px}.bd-sum-load .avatar{width:24px;height:24px;font-size:11px}
 .bd-both{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--c-i50);color:var(--c-i600)}
-.bd-prio{display:inline-flex;align-items:center;gap:6px;text-transform:none!important;letter-spacing:0!important;font-size:12px!important;font-weight:700;padding:3px 9px 3px 7px;border-radius:999px;background:var(--c-n50)}
-.bd-prio i{width:8px;height:8px;border-radius:50%;background:currentColor}
-.bd-up{display:inline-grid;transform:rotate(-90deg)}.bd-down{display:inline-grid;transform:rotate(90deg)}
 @media(hover:hover) and (pointer:fine){.bd-sum-k:hover{border-color:var(--c-i300)}}
 @media(max-width:1200px){.bd-sum{grid-template-columns:repeat(3,minmax(0,1fr))}.bd-sum-main,.bd-sum-load{grid-column:span 3}}
 @media(max-width:600px){.bd-sum{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.bd-sum-k{grid-template-columns:1fr;text-align:center;justify-items:center;padding:10px 6px}.bd-sum-k>span{grid-row:auto;margin-bottom:4px}}
@@ -1843,3 +1840,71 @@ button.fin-col{background:none;border:0;padding:0;font:inherit;color:inherit;cur
 @media(hover:hover) and (pointer:fine){.fp-mv:hover{border-color:var(--c-i200)}.fp-joint .fp-mv:hover,.fp-proj:hover{background:#ffffff22}button.fin-col:hover{background:var(--c-n50)}.fai-tabs button:hover{border-color:var(--c-i300)}}
 @media(max-width:600px){.fai-ask{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.fai-answer{animation:none}}
+/* Inicio: dinero del mes y cuándo es cada plan */
+.page.h6>.hm-card{order:3;margin-top:0}
+.hm-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.hm-p{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:16px;border:1px solid var(--c-n100);background:var(--c-n25);color:inherit;font:inherit;text-align:left;cursor:pointer;min-width:0;transition:border-color .2s cubic-bezier(.16,1,.3,1)}
+.hm-p>span:not(.avatar):not(.hm-ic){display:grid;min-width:0}.hm-p small{font-size:12px;color:var(--c-n500)}.hm-p b{font-size:18px;letter-spacing:-.3px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hm-p b.neg{color:var(--c-r600)}
+.hm-ic{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--c-i50);color:var(--c-i600);flex:0 0 auto}
+.hm-bill{cursor:default;grid-column:span 2}.hm-bill b{font-size:15px}.hm-bill .btn{margin-left:auto}.hm-bill.late .hm-ic{background:var(--c-r50);color:var(--c-r600)}
+.h6-plan-when{display:grid;justify-items:end;gap:4px;min-width:96px}.h6-plan-in{font-style:normal;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--c-n50);color:var(--c-n600)}.h6-plan-in.soon{background:var(--c-a50);color:var(--c-a700)}
+@media(hover:hover) and (pointer:fine){.hm-p:not(.hm-bill):hover{border-color:var(--c-i300)}}
+@media(max-width:600px){.hm-bill{grid-column:auto;flex-wrap:wrap}.hm-row{grid-template-columns:1fr 1fr}.hm-bill{grid-column:1/-1}}
+.hm-debt{color:var(--c-a700)!important;font-weight:600}
+@media(max-width:600px){.hm-row>.hm-p:nth-child(3){grid-column:1/-1}}
+/* Inicio: «Hoy / En N días» y tareas en una línea, sin romper en vertical */
+.h6-plan-when .h6-plan-progress{width:112px;max-width:none}.h6-plan-when .h6-plan-progress small{white-space:nowrap;writing-mode:horizontal-tb}
+/* Finanzas: «Lo de los dos» en claro como los otros dos bloques; oscuro solo en modo oscuro */
+.fp-joint{--acc:#f2b84b;background:var(--c-n0);color:var(--c-n900);border-color:var(--c-n100)}
+.fp-joint .fp-head small,.fp-joint .fp-left small,.fp-joint .fp-left span,.fp-joint .hint,.fp-trips-h,.fp-joint .fp-mv small,.fp-joint .fp-bill small,.fp-debt small,.fp-proj small,.fp-trip small,.fp-sec.dark h4,.fp-tripdebts .td-h{color:var(--c-n500)}
+.fp-joint .fp-left b,.fp-trips-h b,.fp-debt b{color:var(--c-n900)}.fp-ava.two{background:var(--c-a50);color:var(--c-a700)}
+.fp-joint .fp-mv,.fp-trip,.fp-proj,.fp-debt,.fp-tripdebts li{background:var(--c-n25);color:var(--c-n900)}.fp-joint .fp-bill{background:var(--c-a50);color:var(--c-n900)}
+.fp-joint .fp-mv strong.in{color:var(--c-g700)}.fp-sec.dark{border-color:var(--c-n100)}.fp-pbar{background:var(--c-n100)}.fp-pbar b{background:var(--c-g500)}.fp-pbar b.over{background:var(--c-r500)}
+.btn.on-dark{background:var(--c-n50);color:var(--c-n800);border-color:var(--c-n100)}.fp-debt-ic{background:var(--c-a50);color:var(--c-a700)}
+@media(hover:hover) and (pointer:fine){.fp-joint .fp-mv:hover,.fp-proj:hover,.fp-trip:hover{background:var(--c-n50)}}
+/* Chat con Dupla: los colores de la marca (tinta azul + coral), no el violeta suelto */
+.dp-panel{background:linear-gradient(180deg,var(--dt-tinta) 0%,#17294a 38%,#24375c 58%,#c9d2e3 86%,var(--dt-fondo) 100%)}
+.dp-send{background:var(--dt-coral);color:#fff}
+.dp-spark{background:radial-gradient(circle,#fff 0,#ffb39f 40%,transparent 70%)}
+/* Propuestas de Dupla: tarjetas con aire entre ellas */
+.gd-page .panel{margin-bottom:16px}.gd-page .panel:last-child{margin-bottom:0}
+.mt-room{position:relative}.mt-pdf{position:absolute;right:0;top:0;z-index:2}
+/* Finanzas: primero el gráfico y el presupuesto; el resto con más orden y aire */
+.fin-page .fin-row2{margin-bottom:16px}
+.fin-page .fin-row .panel,.fin-page .fin-row2 .panel{border-radius:24px}
+.fin-goal{padding:12px;border-radius:16px;transition:background-color .2s cubic-bezier(.16,1,.3,1)}.fin-gi{border-radius:12px}
+.fin-goal .fin-bar,.fin-bud .fin-bar{height:8px;border-radius:99px}
+.fin-mv{padding:12px 6px;border-radius:12px;transition:background-color .2s cubic-bezier(.16,1,.3,1)}
+.fin-bill{padding:12px;border-radius:14px;border-top:0;background:var(--c-n25);margin-bottom:8px}.fin-bill.late{background:var(--c-r50)}
+.fin-bud{padding:6px 0}
+@media(hover:hover) and (pointer:fine){.fin-goal:hover,.fin-mv:hover{background:var(--c-n25)}}
+/* Propuestas de Dupla: para qué sirve, en tres pasos */
+.gd-how{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:18px;border-radius:24px;background:var(--c-n0);border:1px solid var(--c-n100);margin:0 0 18px}
+.gd-how ol{flex:1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;list-style:none;margin:0;padding:0;min-width:0}
+.gd-how li{display:flex;gap:10px;align-items:flex-start}.gd-how li span{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--dt-tinta,#10203a);color:#fff;font-weight:700;font-size:13px;flex:0 0 auto}
+.gd-how li div{display:grid;gap:2px}.gd-how li small{color:var(--c-n600);line-height:1.45}
+@media(max-width:900px){.gd-how ol{grid-template-columns:1fr}.gd-how .btn{width:100%}}
+/* Biblioteca: buscador, filtros y todos los archivos */
+.lib-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 16px}.lib-search{flex:1;min-width:240px;display:flex;align-items:center;gap:8px;height:44px;padding:0 14px;border:1px solid var(--v6-line);border-radius:var(--r-sm);background:var(--c-n0);color:var(--c-n500)}
+.lib-search input{flex:1;border:0;background:transparent;font:inherit;color:var(--c-n900);min-width:0;outline:none}.lib-search:focus-within{outline:2px solid var(--c-i200);border-color:var(--c-i300)}
+.lib-files{margin-bottom:16px}.lib-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.lib-list li{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--c-n100);border-radius:14px;background:var(--c-n0);transition:border-color .2s cubic-bezier(.16,1,.3,1)}
+.lib-ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;flex:0 0 auto;background:var(--c-n50);color:var(--c-n600)}.lib-ic.t-pdf{background:var(--c-r50);color:var(--c-r600)}.lib-ic.t-img{background:var(--c-i50);color:var(--c-i600)}
+.lib-main{flex:1;min-width:0;display:grid}.lib-main b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lib-main small{color:var(--c-n500);font-size:12px}
+.lib-acts{display:flex;gap:6px;flex:0 0 auto}.lib-acts .btn{padding:6px 10px}
+@media(hover:hover) and (pointer:fine){.lib-list li:hover{border-color:var(--c-i300)}}
+@media(max-width:600px){.lib-list li{flex-wrap:wrap}.lib-acts{width:100%;justify-content:flex-end}}
+/* Ajustes: Nosotros y Accesibilidad */
+.st-card{margin-bottom:16px}.st-card h2{font-size:18px;margin:0 0 4px}.st-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}.st-row label{display:grid;gap:4px;font-size:13px;color:var(--c-n600)}
+.st-row input[type=date]{height:42px;border:1px solid var(--v6-line);border-radius:var(--r-sm);padding:0 12px;background:var(--c-n0);color:var(--c-n900)}
+.st-photo{width:120px;height:80px;object-fit:cover;border-radius:12px;border:1px solid var(--c-n100)}
+html[data-text="grande"] #app{zoom:1.1}html[data-text="muy"] #app{zoom:1.22}
+html[data-motion="off"] *,html[data-motion="off"] *::before,html[data-motion="off"] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+html[data-contrast="alto"]{--c-n400:#4b5363;--c-n500:#3d4453;--c-n600:#2b313d}
+/* Ideas: botones de cada tarjeta ordenados y compactos */
+.idea-card .idea-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;padding-top:12px;border-top:1px solid var(--c-n100)}
+.idea-card .idea-actions .btn{padding:7px 11px;font-size:13px}
+.idea-card{display:flex;flex-direction:column;gap:6px}
+/* Cabecera de proyecto normal: la etiqueta no se aprieta contra los botones (los botones bajan si no caben). */
+.project-main-head{flex-wrap:wrap;row-gap:18px}.project-main-head .project-identity{flex:1 1 420px}
+@media(min-width:700px){.project-identity .eyebrow{white-space:nowrap}}

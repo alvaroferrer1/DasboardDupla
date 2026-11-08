@@ -2,7 +2,7 @@
 // Uso: npm run reserva   (copia los datos desde Cloudflare al arrancar y cada hora; abre http://localhost:8790)
 //      npm run reserva -- --sin-copiar   (arranca con lo que ya tiene)   --forzar   (copia aunque haya cambios hechos en la reserva)
 import { createServer } from 'node:http';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
@@ -43,6 +43,8 @@ function acceptSocket(socket,attachment,sockets,onText){
 
 export async function startReserva({port=8790,host='127.0.0.1',dataFile=join(ROOT,'data','reserva','dupla.sqlite'),env:extra={},sync=true,force=false,log=console.log}={}){
  const env={...readEnvFile(join(ROOT,'.env.reserva')),...extra};
+ // Igual que env.ASSETS en Cloudflare: la API lee /private/* (foto, cuaderno) solo con sesión.
+ env.ASSETS=env.ASSETS||{fetch:async r=>{const p=normalize(join(PUBLIC,decodeURIComponent(new URL(r.url||r).pathname)));if(!p.startsWith(PUBLIC+sep)||!existsSync(p)||!statSync(p).isFile())return new Response('No encontrado',{status:404});return new Response(await readFile(p),{headers:{'Content-Type':TYPES[extname(p).toLowerCase()]||'application/octet-stream'}});}};
  const storage=createNodeStorage(dataFile),sockets=new Set();
  const ctx={getWebSockets:()=>[...sockets],waitUntil:p=>{Promise.resolve(p).catch(()=>{});}};
  let app=null;
@@ -52,17 +54,26 @@ export async function startReserva({port=8790,host='127.0.0.1',dataFile=join(ROO
  async function serveStatic(req,res,url){
   let rel=decodeURIComponent(url.pathname);if(rel.endsWith('/'))rel+='index.html';
   const file=normalize(join(PUBLIC,rel));
-  if(!file.startsWith(PUBLIC+sep)||!existsSync(file)||!statSync(file).isFile()){res.writeHead(404,{...headers,'Content-Type':'text/plain; charset=utf-8'});res.end('No encontrado');return;}
+  if(!file.startsWith(PUBLIC+sep)||file.startsWith(join(PUBLIC,'private')+sep)||!existsSync(file)||!statSync(file).isFile()){res.writeHead(404,{...headers,'Content-Type':'text/plain; charset=utf-8'});res.end('No encontrado');return;}
   const ext=extname(file).toLowerCase(),body=await readFile(file);
   res.writeHead(200,{...headers,'Content-Type':TYPES[ext]||'application/octet-stream','Cache-Control':ext==='.html'?'no-cache':'public, max-age=3600'});res.end(req.method==='HEAD'?undefined:body);
  }
  const server=createServer(async(req,res)=>{
   const url=new URL(req.url,`http://${req.headers.host||'localhost'}`);
   try{
+   // --entrar: abre la reserva ya con la sesión del dueño de la credencial (solo desde este ordenador).
+   if(url.pathname==='/entrar'&&env.RESERVA_ENTRAR==='1'&&/^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(req.socket.remoteAddress||'')){
+    const u=storage.db.prepare("SELECT id FROM users WHERE password_hash NOT LIKE 'sin-clave:%' ORDER BY created_at LIMIT 1").get();if(!u){res.writeHead(404,headers);res.end('Sin cuenta con clave');return;}
+    const token=randomBytes(32).toString('hex');storage.db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,device,created_at) VALUES(?,?,?,?,?)').run(createHash('sha256').update(token).digest('hex'),u.id,new Date(Date.now()+30*864e5).toISOString(),'Reserva local',new Date().toISOString());
+    res.writeHead(302,{...headers,'Set-Cookie':`dos_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`,Location:'/'});res.end();return;}
    if(!url.pathname.startsWith('/api/'))return await serveStatic(req,res,url);
    if(!app){res.writeHead(503,{...headers,'Content-Type':'application/json'});res.end('{"error":"La reserva está arrancando"}');return;}
    if(url.pathname==='/api/health'){res.writeHead(200,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok',reserva:true,sync:await storage.get('reserva_sync')||null}));return;}
    const wh=res.writeHead.bind(res);res.writeHead=(code,h={})=>wh(code,{...headers,...h});
+   // --entrar: los calendarios de Google (conjunto y personales fusionados) se leen de la web real; desde aquí no se escribe en Google.
+   if(env.RESERVA_ENTRAR==='1'&&(url.pathname.startsWith('/api/google/')||(url.pathname==='/api/push/status'&&req.method==='GET'))&&app.userFromReq(req)){
+    if(req.method!=='GET'){res.writeHead(409,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({error:'En la copia local el calendario de Google es solo de lectura.'}));return;}
+    const r=await cloudGet(url.pathname+url.search);res.writeHead(r.status,{'Content-Type':r.headers.get('content-type')||'application/json','Cache-Control':'no-store'});res.end(Buffer.from(await r.arrayBuffer()));return;}
    await app.api(req,res,url);
    if(WRITE.has(req.method)&&res.statusCode<400&&!NOT_A_CHANGE.test(url.pathname)&&!await storage.get('reserva_cambios'))await storage.put('reserva_cambios',{at:new Date().toISOString(),path:url.pathname});
   }catch(error){
@@ -99,6 +110,13 @@ export async function startReserva({port=8790,host='127.0.0.1',dataFile=join(ROO
   }
   return {failed:true};
  }
+ let cloudCookie='';
+ async function cloudGet(path,retry=true){
+  const origin=env.RESERVA_ORIGEN||CLOUD;
+  if(!cloudCookie){const cred=credential(env);if(!cred)return new Response('{"error":"Sin credencial"}',{status:503});const l=await fetch(origin+'/api/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({email:cred.email,password:cred.password}),signal:AbortSignal.timeout(20000)});if(!l.ok)return new Response('{"error":"No se pudo entrar en la web real"}',{status:502});cloudCookie=(l.headers.getSetCookie?.()||[]).map(c=>c.split(';')[0]).join('; ');}
+  const r=await fetch(origin+path,{headers:{Cookie:cloudCookie},signal:AbortSignal.timeout(30000)}).catch(()=>new Response('{"error":"La web real no responde"}',{status:502}));
+  if(r.status===401&&retry){cloudCookie='';return cloudGet(path,false);}return r;
+ }
  function notifyAll(){const m=JSON.stringify({space:null,projectId:null,actor:null,at:new Date().toISOString()});for(const ws of sockets)try{ws.send(m);}catch{}}
  let timer=null;
  const hourly=async()=>{if(sync)await syncNow(false);await runHourlyJobs(app,env);};
@@ -121,7 +139,7 @@ function credential(env){
 }
 
 if(process.argv[1]&&fileURLToPath(import.meta.url)===normalize(process.argv[1])){
- const args=process.argv.slice(2),r=await startReserva({sync:!args.includes('--sin-copiar'),force:args.includes('--forzar'),port:Number(process.env.PORT)||8790});
+ const args=process.argv.slice(2),r=await startReserva({sync:!args.includes('--sin-copiar'),force:args.includes('--forzar'),port:Number(process.env.PORT)||8790,env:args.includes('--entrar')?{RESERVA_ENTRAR:'1'}:{}});
  console.log(`\nDUPLA (reserva) funcionando en ${r.url}\nDeja esta ventana abierta. Para pararlo: Ctrl+C.`);
  const stop=async()=>{await r.close();process.exit(0);};process.on('SIGINT',stop);process.on('SIGTERM',stop);
 }
