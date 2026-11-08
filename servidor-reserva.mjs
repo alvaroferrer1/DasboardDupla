@@ -69,9 +69,9 @@ export async function startReserva({port=8790,host='127.0.0.1',dataFile=join(ROO
    if(!url.pathname.startsWith('/api/'))return await serveStatic(req,res,url);
    if(!app){res.writeHead(503,{...headers,'Content-Type':'application/json'});res.end('{"error":"La reserva está arrancando"}');return;}
    if(url.pathname==='/api/health'){res.writeHead(200,{...headers,'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok',reserva:true,sync:await storage.get('reserva_sync')||null}));return;}
-   const wh=res.writeHead.bind(res);res.writeHead=(code,h={})=>wh(code,{...headers,...h});
+   const wh=res.writeHead.bind(res),pdfIn=/^\/api\/assets\/[a-f0-9-]{36}$/.test(url.pathname)&&url.searchParams.get('inline')==='1';res.writeHead=(code,h={})=>{const x={...headers,...h};if(pdfIn&&/^application\/pdf/.test(x['Content-Type']||'')){x['Content-Security-Policy']=x['Content-Security-Policy'].replace("frame-ancestors 'none'","frame-ancestors 'self'");x['X-Frame-Options']='SAMEORIGIN';}return wh(code,x);};
    // --entrar: los calendarios de Google (conjunto y personales fusionados) se leen de la web real; desde aquí no se escribe en Google.
-   if(env.RESERVA_ENTRAR==='1'&&(url.pathname.startsWith('/api/google/')||(url.pathname==='/api/push/status'&&req.method==='GET'))&&app.userFromReq(req)){
+   if(env.RESERVA_ENTRAR==='1'&&(url.pathname.startsWith('/api/google/')||(['/api/push/status','/api/calendar/merged'].includes(url.pathname)&&req.method==='GET'))&&app.userFromReq(req)){
     if(req.method!=='GET'){res.writeHead(409,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({error:'En la copia local el calendario de Google es solo de lectura.'}));return;}
     const r=await cloudGet(url.pathname+url.search);res.writeHead(r.status,{'Content-Type':r.headers.get('content-type')||'application/json','Cache-Control':'no-store'});res.end(Buffer.from(await r.arrayBuffer()));return;}
    await app.api(req,res,url);
@@ -130,7 +130,7 @@ export async function startReserva({port=8790,host='127.0.0.1',dataFile=join(ROO
 }
 
 // La credencial cifrada de Windows (npm run credencial) solo se lee en memoria; nunca se guarda en claro.
-function credential(env){
+export function credential(env){
  if(env.RESERVA_EMAIL&&env.RESERVA_CLAVE)return {email:env.RESERVA_EMAIL,password:env.RESERVA_CLAVE};
  const file=join(process.env.USERPROFILE||'','.dupla','credencial.xml');if(process.platform!=='win32'||!existsSync(file))return null;
  const ps=`$c=Import-Clixml -LiteralPath '${file.replace(/'/g,"''")}';[Console]::Out.Write((@{email=$c.UserName;password=$c.GetNetworkCredential().Password}|ConvertTo-Json -Compress))`;

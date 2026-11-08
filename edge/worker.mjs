@@ -93,6 +93,7 @@ export default {
   if(response.status===101)return response;
   const headers=new Headers(response.headers);
   for(const [name,value] of Object.entries(security))headers.set(name,value);
+  if(/^\/api\/assets\/[a-f0-9-]{36}$/.test(url.pathname)&&url.searchParams.get('inline')==='1'&&/^application\/pdf/.test(headers.get('Content-Type')||'')){headers.set('Content-Security-Policy',security['Content-Security-Policy'].replace("frame-ancestors 'none'","frame-ancestors 'self'"));headers.set('X-Frame-Options','SAMEORIGIN');}
   // web-perf: app.js y style.css llevan ?v= de versión; se guardan un año. Las fuentes no cambian.
   if(response.status===200&&!url.pathname.startsWith('/api/')){if(url.searchParams.has('v')&&/\.(js|css)$/.test(url.pathname))headers.set('Cache-Control','public, max-age=31536000, immutable');else if(url.pathname.startsWith('/fonts/'))headers.set('Cache-Control','public, max-age=2592000');}
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});

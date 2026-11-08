@@ -19,7 +19,7 @@ export function createFinanzas(d){
  const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  // Movimientos propios + gastos reales de los proyectos (solo lectura aquí: se editan en su proyecto).
  const moves=(from,to)=>[...all('SELECT m.*,us.name AS who FROM fin_moves m LEFT JOIN users us ON us.id=m.paid_by WHERE m.date BETWEEN ? AND ?',from,to),
-  ...all(`SELECT e.id,'out' AS kind,e.actual AS amount,${PCAT} AS category,p.title||' · '||e.title AS title,substr(COALESCE(e.booked_at,e.created_at),1,10) AS date,e.paid_by,e.for_user,${PSPLIT} AS split,us.name AS who,p.id AS project_id FROM expenses e JOIN projects p ON p.id=e.project_id LEFT JOIN users us ON us.id=e.paid_by WHERE p.deleted_at IS NULL AND e.actual>0 AND substr(COALESCE(e.booked_at,e.created_at),1,10) BETWEEN ? AND ?`,from,to)];
+  ...all(`SELECT e.id,'out' AS kind,e.actual AS amount,${PCAT} AS category,p.title||' · '||e.title AS title,substr(COALESCE(e.booked_at,e.created_at),1,10) AS date,e.paid_by,e.for_user,${PSPLIT} AS split,us.name AS who,p.id AS project_id,e.estimated FROM expenses e JOIN projects p ON p.id=e.project_id LEFT JOIN users us ON us.id=e.paid_by WHERE p.deleted_at IS NULL AND e.actual>0 AND substr(COALESCE(e.booked_at,e.created_at),1,10) BETWEEN ? AND ?`,from,to)];
  const sum=(xs,k)=>r2(xs.filter(x=>x.kind===k).reduce((a,x)=>a+Number(x.amount||0),0));
  function periods(period,t){const y=+t.slice(0,4),m=+t.slice(5,7)-1;
   if(period==='year')return {from:`${y}-01-01`,to:`${y}-12-31`,prev:[`${y-1}-01-01`,`${y-1}-12-31`],months:12,label:String(y),vs:String(y-1),

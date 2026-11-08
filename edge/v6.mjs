@@ -30,7 +30,7 @@ export function createV6(d){
  const getShared=k=>{const r=get('SELECT value FROM shared_settings WHERE key=?',k);return r?JSON.parse(r.value):null;};
  const setShared=(k,v,by)=>run('INSERT INTO shared_settings(key,value,updated_by,updated_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_by=excluded.updated_by,updated_at=excluded.updated_at',k,JSON.stringify(v),by,now());
  // El avatar se expone solo como versión (para invalidar caché), nunca como nombre de archivo interno.
- const sharedSettings=()=>{const o=Object.fromEntries(all('SELECT key,value,updated_at FROM shared_settings').map(r=>[r.key,r.key==='dupla_avatar'||r.key==='home_photo'?r.updated_at.replace(/\D/g,'').slice(0,14):JSON.parse(r.value)]));return {couple_since:o.couple_since||'',dupla_avatar_v:o.dupla_avatar||null,home_photo_v:o.home_photo||null,home_summary:o.home_summary||null};};
+ const sharedSettings=()=>{const o=Object.fromEntries(all('SELECT key,value,updated_at FROM shared_settings').map(r=>[r.key,r.key==='dupla_avatar'||r.key==='home_photo'||r.key.startsWith('photo_')?r.updated_at.replace(/\D/g,'').slice(0,14):JSON.parse(r.value)]));return {couple_since:o.couple_since||'',dupla_avatar_v:o.dupla_avatar||null,home_photo_v:o.home_photo||null,home_summary:o.home_summary||null,photos:Object.fromEntries(Object.entries(o).filter(([k])=>k.startsWith('photo_')).map(([k,v])=>[k.slice(6),v]))};};
  const strip=html=>String(html||'').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim().slice(0,140);
 
  // Fotos libres del destino (Wikimedia Commons + Wikipedia). Nada se carga en el navegador desde terceros.
@@ -526,6 +526,11 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
   const sm=path.match(/^\/api\/sessions\/([a-f0-9]{16})$/);
   if(sm&&req.method==='DELETE'){if(u.token_hash.startsWith(sm[1]))fail(400,'Para cerrar esta sesión usa «Cerrar sesión»');const n=run('DELETE FROM sessions WHERE user_id=? AND substr(token_hash,1,16)=?',u.id,sm[1]).changes;if(!n)fail(404,'Sesión no encontrada');respond(res,200,{ok:true});return true;}
   // Foto de portada del inicio: solo con sesión. Por defecto la vuestra (assets privados que el Worker no sirve en abierto).
+  const upm=path.match(/^\/api\/users\/([a-f0-9-]{36})\/photo$/);
+  if(upm&&req.method==='GET'){const name=all('SELECT value FROM shared_settings WHERE key=?','photo_'+upm[1])[0]?.value;const fn=name?JSON.parse(name):null;if(!fn||!fileExists(fn))fail(404,'Sin foto');const f=readFile(fn);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=604800','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
+  if(path==='/api/me/photo'&&req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'La foto no se ha podido leer. Prueba otra vez.');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>4*1024*1024)fail(413,'La foto debe ocupar menos de 4 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
+   const name=uid();saveFile(name,f);const old=getShared('photo_'+u.id);setShared('photo_'+u.id,name,u.id);if(old){try{removeFile(old);}catch{}}respond(res,200,{shared:sharedSettings()});return true;}
+  if(path==='/api/me/photo'&&req.method==='DELETE'){const old=getShared('photo_'+u.id);if(old){try{removeFile(old);}catch{}}run('DELETE FROM shared_settings WHERE key=?','photo_'+u.id);respond(res,200,{shared:sharedSettings()});return true;}
   if(path==='/api/home-photo'){
    if(req.method==='GET'){const name=getShared('home_photo');if(name&&fileExists(name)){const f=readFile(name);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=604800','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
     const r=env.ASSETS?await env.ASSETS.fetch(new Request('https://assets.local/private/pareja.webp')).catch(()=>null):null;if(!r||!r.ok)fail(404,'Sin foto de portada');
