@@ -182,6 +182,14 @@ Reglas:
 ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
  }
  function toolResultText(x){const s=JSON.stringify(x);return s.length>6000?s.slice(0,6000)+'…(recortado)':s;}
+ // gpt-oss a veces devuelve en texto su razonamiento (formato «harmony») o una llamada a herramienta escrita.
+ // Se recupera la llamada para ejecutarla de verdad y se deja solo la respuesta final, limpia.
+ function fugaIA(raw){let t=String(raw||'');const call=t.match(/to=functions\.([a-z_]+)[^{]*?(\{[\s\S]*?\})\s*(?:<\|call\|>|$)/);
+  if(call){let args=call[2];try{JSON.parse(args);}catch{args='{}';}return {call:{name:call[1],args},text:''};}
+  if(/<\|message\|>/.test(t))t=t.split('<|message|>').pop();if(/assistantfinal/i.test(t))t=t.split(/assistantfinal/i).pop();
+  t=t.replace(/<\|[^|]{1,40}\|>/g,'').replace(/^\s*(analysis|commentary)\b[\s\S]*?(?=\n\n|$)/i,m=>/[áéíóúñ¿¡]/i.test(m)&&!/\b(user|wants|let's|we need)\b/i.test(m)?m:'').trim();
+  return {call:null,text:t};}
+ const pareceIngles=t=>(String(t).match(/\b(the|user|wants|we|need|should|let's|call|tool|answer|maybe)\b/gi)||[]).length>=4&&!/[ñ¿¡]/.test(t);
  async function runAgent(u,message,scope){
   if(!env.AI)fail(503,'La IA no está disponible en este entorno');
   const history=all('SELECT role,content FROM agent_messages WHERE user_id=? ORDER BY created_at DESC LIMIT 12',u.id).reverse();
@@ -189,8 +197,11 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
   const proposals=[],trace=[],remembered=[];let reply='',neurons=0,nudged=false;
   for(let step=0;step<6;step++){
    let r;try{r=await env.AI.run(env.AI_MODEL||AGENT_MODEL,{messages,tools:TOOLS,max_tokens:1200,temperature:0.3});}catch(ex){fail(502,'La IA no ha respondido: '+String(ex.message||ex).slice(0,160));}
-   neurons+=Number(r.usage?.neurons||0);const msg=r.choices?.[0]?.message||{};const calls=msg.tool_calls||r.tool_calls||[];
-   if(!calls.length){reply=String(msg.content??r.response??'').trim();
+   neurons+=Number(r.usage?.neurons||0);const msg=r.choices?.[0]?.message||{};let calls=msg.tool_calls||r.tool_calls||[];
+   if(!calls.length){const fuga=fugaIA(msg.content??r.response??'');if(fuga.call&&step<5)calls=[{id:'texto'+step,function:{name:fuga.call.name,arguments:fuga.call.args}}];else reply=fuga.text;}
+   if(!calls.length){
+    if(pareceIngles(reply)&&step<5&&!messages.some(m=>m.content==='[Sistema] Responde de nuevo solo en español, directamente a la persona, sin explicar tu razonamiento.')){messages.push({role:'assistant',content:reply},{role:'user',content:'[Sistema] Responde de nuevo solo en español, directamente a la persona, sin explicar tu razonamiento.'});continue;}
+    if(!reply)reply='Perdona, no he podido terminar la respuesta. ¿Me lo repites con otras palabras?';
     // Red de seguridad: si dice que propone algo pero no llamó a ninguna herramienta, se le exige hacerlo (una vez).
     if(!proposals.length&&!nudged&&step<5&&/propon|propuest|¿confirm|confirmas|quieres que (lo )?(añada|cree|apunte)/i.test(reply)){nudged=true;messages.push({role:'assistant',content:reply},{role:'user',content:'[Sistema] Has descrito una propuesta sin llamar a la herramienta, así que no existe y no puede confirmarse. Llama ahora a la herramienta correspondiente con esos datos, o reformula sin proponer nada.'});continue;}
     if(!proposals.length&&nudged&&/propon|¿confirm|confirmas/i.test(reply))reply+='\n\n⚠️ No he podido preparar la propuesta para confirmar. Pídemelo de nuevo, por favor.';

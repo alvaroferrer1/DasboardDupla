@@ -94,6 +94,8 @@ export function createDB(storage) {
  sql.exec("CREATE TABLE IF NOT EXISTS us_habit_logs(id TEXT PRIMARY KEY,habit_id TEXT NOT NULL REFERENCES us_habits(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),day TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(habit_id,user_id,day))");
  sql.exec("CREATE TABLE IF NOT EXISTS us_profiles(user_id TEXT PRIMARY KEY REFERENCES users(id),love_language TEXT NOT NULL,scores TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL)");
  sql.exec('CREATE INDEX IF NOT EXISTS us_notes_to ON us_notes(to_id,read_at)');
+ // Cuaderno de pareja: 11 listas, hasta 20 respuestas de cada uno.
+ sql.exec("CREATE TABLE IF NOT EXISTS us_book(list_no INTEGER NOT NULL CHECK(list_no BETWEEN 1 AND 11),user_id TEXT NOT NULL REFERENCES users(id),pos INTEGER NOT NULL CHECK(pos BETWEEN 1 AND 20),text TEXT NOT NULL,detail TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL,PRIMARY KEY(list_no,user_id,pos))");
  // Ideas: a quién le gusta cada una y para cuándo la veis.
  sql.exec("CREATE TABLE IF NOT EXISTS idea_votes(idea_id TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),created_at TEXT NOT NULL,PRIMARY KEY(idea_id,user_id))");
  sql.exec("CREATE TABLE IF NOT EXISTS idea_when(idea_id TEXT PRIMARY KEY REFERENCES ideas(id) ON DELETE CASCADE,hint TEXT NOT NULL CHECK(hint IN ('pronto','este_mes','este_ano','algun_dia')),updated_at TEXT NOT NULL)");

@@ -84,3 +84,32 @@ test('Finanzas: bloque de cada uno, conjunto y análisis con hechos reales',asyn
  const ins=(await f.call('/api/finance/insights?period=month','GET',undefined,a)).data;
  assert.ok(ins.facts.length>0);assert.equal(ins.generated,false);assert.ok(ins.facts.some(x=>/Ahorráis/.test(x.texto)));
 });
+
+test('Cuaderno: importa los dos cuadernos sin duplicar, regalos y metas, y cada uno edita lo suyo',async()=>{
+ let data=null;const ASSETS={async fetch(r){return new URL(r.url).pathname==='/private/cuaderno.json'&&data?Response.json(data):new Response('',{status:404});}};
+ const f=fixture(undefined,{ASSETS});const a=await f.login();const b=await f.loginAs('b@dupla.test','clave-super-b-2345');
+ const na=(await f.call('/api/me','GET',undefined,a)).data.user.name,nb=(await f.call('/api/me','GET',undefined,b)).data.user.name;
+ const k=n=>n.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().split(' ')[0];
+ const lists=n=>Array.from({length:11},(_,i)=>[{text:n+' respuesta '+(i+1)},{text:n+' segunda '+(i+1),detail:'detalle'}]);
+ data={personas:{[k(na)]:lists('A'),[k(nb)]:lists('B')}};
+ let r=await f.call('/api/us/book','GET',undefined,a);assert.equal(r.data.lists.length,11);assert.equal(r.data.imported,false);
+ r=await f.call('/api/us/book/import','POST',{},a);assert.equal(r.status,200);assert.equal(r.data.added.entries,44);assert.equal(r.data.added.gifts,4);assert.equal(r.data.added.goals,4);
+ r=await f.call('/api/us/book/import','POST',{},a);assert.equal(r.data.added.entries,0);assert.equal(r.data.added.gifts,0);assert.equal(r.data.imported,true);
+ const items=(await f.call('/api/couple-items','GET',undefined,a)).data.items;assert.equal(items.filter(x=>x.kind==='gift').length,4);
+ r=await f.call('/api/us/book','PUT',{list_no:8,pos:3,text:'Lomo saltado',detail:'el de mamá'},b);assert.ok(r.data.entries.some(e=>e.list_no===8&&e.pos===3&&e.text==='Lomo saltado'));
+ r=await f.call('/api/us/book','PUT',{list_no:8,pos:3,text:''},b);assert.ok(!r.data.entries.some(e=>e.list_no===8&&e.pos===3));
+ assert.equal((await f.call('/api/us/book','PUT',{list_no:12,pos:1,text:'x'},a)).status,400);
+ const snap=await f.call('/api/snapshot','GET',undefined,a);const d=JSON.parse(Buffer.isBuffer(snap.data)?snap.data.toString():JSON.stringify(snap.data)).data;assert.equal(d.us_book.length,44);
+});
+
+test('Chat con Dupla: la llamada escrita como texto se ejecuta y el razonamiento en inglés no llega a la persona',async()=>{
+ const steps=[{response:'analysis The user wants to recall anniversary. Let us call it.<|end|><|start|>assistant<|channel|>commentary to=functions.listar_proyectos <|constrain|>json<|message|>{}<|call|>'},
+  {response:'The user asked about projects. We should answer that they have one project and maybe suggest.'},
+  {response:'Tenéis un proyecto en marcha: el viaje a Budapest.'}];
+ const seen=[];const ai={async run(model,input){seen.push(input.messages.at(-1));const s=steps.shift();if(!s)throw Error('sin más pasos');return s;}};
+ const f=fixture(ai);const c=await f.login();
+ const r=await f.call('/api/agent','POST',{message:'¿Qué proyectos tenemos?',scope:'couple'},c);
+ assert.equal(r.status,200,JSON.stringify(r.data));
+ assert.equal(r.data.message.content,'Tenéis un proyecto en marcha: el viaje a Budapest.');
+ assert.ok(seen.some(m=>m.role==='tool'),'la herramienta se ejecutó');assert.ok(!/analysis|<\|/.test(r.data.message.content));
+});
