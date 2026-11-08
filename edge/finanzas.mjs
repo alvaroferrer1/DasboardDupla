@@ -30,7 +30,7 @@ export function createFinanzas(d){
   const k=ym(y,m),pk=ym(y,m-1);
   return {from:k+'-01',to:lastDay(k),prev:[pk+'-01',lastDay(pk)],months:1,label:`${MESL[m][0].toUpperCase()+MESL[m].slice(1)} ${y}`,vs:MESL[(m+11)%12],
    series:Array.from({length:6},(_,i)=>{const s=ym(y,m-5+i);return {label:MES[+s.slice(5,7)-1],from:s+'-01',to:lastDay(s),current:i===5};})};}
- function summary(period){const t=today(),p=periods(period,t),cur=moves(p.from,p.to),prev=moves(...p.prev);
+ function summary(period,ref){const now0=today(),t=/^\d{4}-(0[1-9]|1[0-2])$/.test(ref||'')&&ref<=now0.slice(0,7)?ref+'-15':now0,p=periods(period,t),cur=moves(p.from,p.to),prev=moves(...p.prev);
   const income=sum(cur,'in'),expense=sum(cur,'out'),limits=Object.fromEntries(all('SELECT category,monthly FROM fin_budgets').map(x=>[x.category,x.monthly]));
   const bills=all('SELECT * FROM fin_bills WHERE paid_at IS NULL ORDER BY due_date,title');
   const recent=moves('0000-01-01','9999-12-31').sort((a,b)=>(b.date+(b.created_at||'')).localeCompare(a.date+(a.created_at||''))).slice(0,6);
@@ -147,7 +147,7 @@ export function createFinanzas(d){
    if(!env?.AI){respond(res,200,{answer:'Ahora mismo la IA no está disponible. Esto es lo que veo en vuestras cuentas:\n'+facts,generated:false});return true;}
    try{const r=await env.AI.run(env.AI_MODEL||model,{messages:[{role:'system',content:'Eres Dupla, asesora financiera cercana de Álvaro y Angie. Responde SOLO en español de España, en 2 a 5 frases, cálida y concreta, usando únicamente estos datos (no inventes cifras). Si piden ahorrar, da pasos prácticos con importes. Sin markdown ni razonamiento.'},{role:'user',content:`Datos de ${s.label}: ingresos ${eur(s.kpis.income)}, gastos ${eur(s.kpis.expense)}.\n${s.people.map(p=>`${p.name.split(' ')[0]}: gana ${eur(p.income)}, le toca gastar ${eur(p.share)}, le queda ${eur(p.left)}; donde más gasta: ${p.top.map(t=>t.label+' '+eur(t.amount)).join(', ')||'nada'}.`).join('\n')}\n${facts}\nPregunta: ${q}`}],max_tokens:500});
     let a=String(r.choices?.[0]?.message?.content||r.response||'').trim();if(/<\|message\|>/.test(a))a=a.split('<|message|>').pop();a=a.replace(/<\|[^|]{1,40}\|>/g,'').trim().slice(0,1500);respond(res,200,{answer:a||'No he podido responder ahora. Prueba otra vez.',generated:!!a});}catch{respond(res,200,{answer:'No he podido consultar la IA ahora. Esto es lo que veo:\n'+facts,generated:false});}return true;}
-  if(path==='/api/finance'&&req.method==='GET'){respond(res,200,summary(choice(url.searchParams.get('period')||'month',['month','quarter','year'])));return true;}
+  if(path==='/api/finance'&&req.method==='GET'){respond(res,200,summary(choice(url.searchParams.get('period')||'month',['month','quarter','year']),url.searchParams.get('month')));return true;}
   if(path==='/api/finance/moves'&&req.method==='GET'){const t=today(),from=validDate(url.searchParams.get('from'))||`${+t.slice(0,4)-1}${t.slice(4)}`,to=validDate(url.searchParams.get('to'))||t;
    respond(res,200,{items:moves(from,to).sort((a,b)=>(b.date+(b.created_at||'')).localeCompare(a.date+(a.created_at||''))),from,to});return true;}
   const mv=path.match(/^\/api\/finance\/moves(?:\/([a-f0-9-]{36}))?$/);
