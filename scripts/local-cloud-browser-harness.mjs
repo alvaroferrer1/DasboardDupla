@@ -10,7 +10,9 @@ const filename=process.env.DUPLA_TEST_DB||':memory:';
 const db=new DatabaseSync(filename);db.exec('PRAGMA foreign_keys=ON');
 const storage={sql:{exec(sql,...a){if(!a.length&&/;\s*\S/.test(sql.trim().replace(/;\s*$/,''))){db.exec(sql);return {toArray:()=>[],rowsWritten:0};}const stmt=db.prepare(sql),reader=/^\s*(SELECT|PRAGMA|WITH|EXPLAIN)\b/i.test(sql);const rows=reader?stmt.all(...a):[];const changes=reader?0:stmt.run(...a).changes;return {toArray:()=>rows,rowsWritten:changes};}},transactionSync(fn){db.exec('BEGIN');try{const result=fn();db.exec('COMMIT');return result;}catch(ex){db.exec('ROLLBACK');throw ex;}}};
 const testSockets=new Set();
-const app=createApi(storage,{SETUP_TOKEN:'T'.repeat(64),DEV_MODE:'true',PUBLIC_ORIGIN:''},{getWebSockets:()=>Array.from(testSockets),waitUntil(){}});
+// Como el binding ASSETS de Cloudflare: el Durable Object lee las fotos privadas del directorio público.
+const ASSETS={async fetch(r){try{return new Response(await readFile(new URL('.'+new URL(r.url).pathname,new URL('../edge/public/',import.meta.url))));}catch{return new Response('',{status:404});}}};
+const app=createApi(storage,{SETUP_TOKEN:'T'.repeat(64),DEV_MODE:'true',PUBLIC_ORIGIN:'',ASSETS},{getWebSockets:()=>Array.from(testSockets),waitUntil(){}});
 const publicDir=new URL('../edge/public/',import.meta.url);
 const types={'.css':'text/css','.js':'text/javascript','.html':'text/html','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.webmanifest':'application/manifest+json','.woff2':'font/woff2'};
 const server=createServer(async(req,res)=>{

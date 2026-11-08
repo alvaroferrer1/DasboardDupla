@@ -20,6 +20,7 @@ const casos = [
   ['viajes-finanzas', '390,1440'],
   ['panel-movil', '390'],
   ['errores', '1440'],
+  ['nosotros', '390,1440'],
   ['gastos-fotos-listas', '390,1440'],
   ['tablero', '1440', [...arrastres, '--tras', readFileSync(new URL('../tests/navegador/tablero-tras.js', import.meta.url), 'utf8')]],
 ];

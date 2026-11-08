@@ -86,12 +86,15 @@ export default {
    const id=env.DOS_ROOM.idFromName('shared-home');
    response=await env.DOS_ROOM.get(id).fetch(request);
   }else{
-   response=await env.ASSETS.fetch(request);
+   // Las fotos privadas solo salen por /api/home-photo, con sesión.
+   response=url.pathname.startsWith('/private/')?new Response('No encontrado',{status:404}):await env.ASSETS.fetch(request);
   }
   // New Response preserves Content-Type, cookies, and WebSocket upgrades; don't rewrite 101 responses.
   if(response.status===101)return response;
   const headers=new Headers(response.headers);
   for(const [name,value] of Object.entries(security))headers.set(name,value);
+  // web-perf: app.js y style.css llevan ?v= de versión; se guardan un año. Las fuentes no cambian.
+  if(response.status===200&&!url.pathname.startsWith('/api/')){if(url.searchParams.has('v')&&/\.(js|css)$/.test(url.pathname))headers.set('Cache-Control','public, max-age=31536000, immutable');else if(url.pathname.startsWith('/fonts/'))headers.set('Cache-Control','public, max-age=2592000');}
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
  }
 };

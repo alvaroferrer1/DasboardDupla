@@ -30,7 +30,7 @@ export function createV6(d){
  const getShared=k=>{const r=get('SELECT value FROM shared_settings WHERE key=?',k);return r?JSON.parse(r.value):null;};
  const setShared=(k,v,by)=>run('INSERT INTO shared_settings(key,value,updated_by,updated_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_by=excluded.updated_by,updated_at=excluded.updated_at',k,JSON.stringify(v),by,now());
  // El avatar se expone solo como versión (para invalidar caché), nunca como nombre de archivo interno.
- const sharedSettings=()=>{const o=Object.fromEntries(all('SELECT key,value,updated_at FROM shared_settings').map(r=>[r.key,r.key==='dupla_avatar'?r.updated_at.replace(/\D/g,'').slice(0,14):JSON.parse(r.value)]));return {couple_since:o.couple_since||'',dupla_avatar_v:o.dupla_avatar||null,home_summary:o.home_summary||null};};
+ const sharedSettings=()=>{const o=Object.fromEntries(all('SELECT key,value,updated_at FROM shared_settings').map(r=>[r.key,r.key==='dupla_avatar'||r.key==='home_photo'?r.updated_at.replace(/\D/g,'').slice(0,14):JSON.parse(r.value)]));return {couple_since:o.couple_since||'',dupla_avatar_v:o.dupla_avatar||null,home_photo_v:o.home_photo||null,home_summary:o.home_summary||null};};
  const strip=html=>String(html||'').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim().slice(0,140);
 
  // Fotos libres del destino (Wikimedia Commons + Wikipedia). Nada se carga en el navegador desde terceros.
@@ -510,6 +510,14 @@ ${memory?'Lo que sabes de ellos (memoria compartida):\n'+memory:''}`;
   if(path==='/api/sessions'&&req.method==='GET'){respond(res,200,{sessions:all('SELECT token_hash,device,created_at,expires_at FROM sessions WHERE user_id=? AND expires_at>? ORDER BY created_at DESC',u.id,now()).map(s=>({id:s.token_hash.slice(0,16),device:s.device||'Dispositivo anterior',created_at:s.created_at||null,expires_at:s.expires_at,current:s.token_hash===u.token_hash})),push_devices:get('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id=?',u.id).n});return true;}
   const sm=path.match(/^\/api\/sessions\/([a-f0-9]{16})$/);
   if(sm&&req.method==='DELETE'){if(u.token_hash.startsWith(sm[1]))fail(400,'Para cerrar esta sesión usa «Cerrar sesión»');const n=run('DELETE FROM sessions WHERE user_id=? AND substr(token_hash,1,16)=?',u.id,sm[1]).changes;if(!n)fail(404,'Sesión no encontrada');respond(res,200,{ok:true});return true;}
+  // Foto de portada del inicio: solo con sesión. Por defecto la vuestra (assets privados que el Worker no sirve en abierto).
+  if(path==='/api/home-photo'){
+   if(req.method==='GET'){const name=getShared('home_photo');if(name&&fileExists(name)){const f=readFile(name);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=604800','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
+    const r=env.ASSETS?await env.ASSETS.fetch(new Request('https://assets.local/private/pareja.webp')).catch(()=>null):null;if(!r||!r.ok)fail(404,'Sin foto de portada');
+    const f=Buffer.from(await r.arrayBuffer());res.writeHead(200,{'Content-Type':'image/webp','Cache-Control':'private, max-age=604800','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
+   if(req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'La foto no se ha podido leer. Prueba a subirla otra vez.');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>6*1024*1024)fail(413,'La foto debe ocupar menos de 6 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');
+    const name=uid();saveFile(name,f);const old=getShared('home_photo');setShared('home_photo',name,u.id);if(old){try{removeFile(old);}catch{}}logFree(u,'couple','cambió la foto del inicio','');respond(res,200,{shared:sharedSettings()});return true;}
+   if(req.method==='DELETE'){const old=getShared('home_photo');if(old){try{removeFile(old);}catch{}}run("DELETE FROM shared_settings WHERE key='home_photo'");respond(res,200,{shared:sharedSettings()});return true;}}
   if(path==='/api/agent/avatar'){
    if(req.method==='GET'){const name=getShared('dupla_avatar');if(!name||!fileExists(name))fail(404,'Sin avatar');const f=readFile(name);res.writeHead(200,{'Content-Type':imageMime(f),'Cache-Control':'private, max-age=604800','X-Content-Type-Options':'nosniff'});res.end(f);return true;}
    if(req.method==='POST'){const b=await readBody(req);if(typeof b.base64!=='string'||!/^[-A-Za-z0-9+/]*={0,2}$/.test(b.base64))fail(400,'El archivo no se ha podido leer. Prueba a subirlo otra vez.');const f=Buffer.from(b.base64,'base64');if(!f.length||f.length>2*1024*1024)fail(413,'El avatar debe ocupar menos de 2 MB');if(!isImage(f))fail(415,'Sube una foto JPG, PNG o WebP');

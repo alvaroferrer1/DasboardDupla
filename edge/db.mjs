@@ -86,6 +86,17 @@ export function createDB(storage) {
  sql.exec("CREATE TABLE IF NOT EXISTS couple_lists(id TEXT PRIMARY KEY,title TEXT NOT NULL,goal INTEGER NOT NULL DEFAULT 0,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
  sql.exec("CREATE TABLE IF NOT EXISTS couple_list_items(id TEXT PRIMARY KEY,list_id TEXT NOT NULL REFERENCES couple_lists(id) ON DELETE CASCADE,title TEXT NOT NULL,note TEXT NOT NULL DEFAULT '',done INTEGER NOT NULL DEFAULT 0,done_at TEXT,photo TEXT,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
  sql.exec('CREATE INDEX IF NOT EXISTS couple_list_items_list ON couple_list_items(list_id)');
+ // Nosotros: pregunta del día, ánimo, notas, hábitos juntos y lenguaje del amor.
+ sql.exec("CREATE TABLE IF NOT EXISTS us_answers(id TEXT PRIMARY KEY,day TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id),answer TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(day,user_id))");
+ sql.exec("CREATE TABLE IF NOT EXISTS us_checkins(id TEXT PRIMARY KEY,day TEXT NOT NULL,user_id TEXT NOT NULL REFERENCES users(id),mood INTEGER NOT NULL CHECK(mood BETWEEN 1 AND 5),note TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,UNIQUE(day,user_id))");
+ sql.exec("CREATE TABLE IF NOT EXISTS us_notes(id TEXT PRIMARY KEY,from_id TEXT NOT NULL REFERENCES users(id),to_id TEXT NOT NULL REFERENCES users(id),text TEXT NOT NULL,created_at TEXT NOT NULL,read_at TEXT)");
+ sql.exec("CREATE TABLE IF NOT EXISTS us_habits(id TEXT PRIMARY KEY,title TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL,archived INTEGER NOT NULL DEFAULT 0)");
+ sql.exec("CREATE TABLE IF NOT EXISTS us_habit_logs(id TEXT PRIMARY KEY,habit_id TEXT NOT NULL REFERENCES us_habits(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),day TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(habit_id,user_id,day))");
+ sql.exec("CREATE TABLE IF NOT EXISTS us_profiles(user_id TEXT PRIMARY KEY REFERENCES users(id),love_language TEXT NOT NULL,scores TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL)");
+ sql.exec('CREATE INDEX IF NOT EXISTS us_notes_to ON us_notes(to_id,read_at)');
+ // Ideas: a quién le gusta cada una y para cuándo la veis.
+ sql.exec("CREATE TABLE IF NOT EXISTS idea_votes(idea_id TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,user_id TEXT NOT NULL REFERENCES users(id),created_at TEXT NOT NULL,PRIMARY KEY(idea_id,user_id))");
+ sql.exec("CREATE TABLE IF NOT EXISTS idea_when(idea_id TEXT PRIMARY KEY REFERENCES ideas(id) ON DELETE CASCADE,hint TEXT NOT NULL CHECK(hint IN ('pronto','este_mes','este_ano','algun_dia')),updated_at TEXT NOT NULL)");
  const tnCols=sql.exec('PRAGMA table_info(task_notes)').toArray().map(r=>r.name);
  if(!tnCols.includes('stored_name'))sql.exec("ALTER TABLE task_notes ADD COLUMN stored_name TEXT");
  if(!tnCols.includes('file_name'))sql.exec("ALTER TABLE task_notes ADD COLUMN file_name TEXT NOT NULL DEFAULT ''");
@@ -103,6 +114,7 @@ export function createDB(storage) {
  sql.exec("CREATE TABLE IF NOT EXISTS fin_settles(id TEXT PRIMARY KEY,group_id TEXT NOT NULL REFERENCES fin_groups(id) ON DELETE CASCADE,from_user TEXT NOT NULL REFERENCES users(id),to_user TEXT NOT NULL REFERENCES users(id),amount REAL NOT NULL,date TEXT NOT NULL,created_by TEXT REFERENCES users(id),created_at TEXT NOT NULL)");
  const fmCols=sql.exec('PRAGMA table_info(fin_moves)').toArray().map(r=>r.name);
  if(!fmCols.includes('group_id'))sql.exec('ALTER TABLE fin_moves ADD COLUMN group_id TEXT');
+ if(!fmCols.includes('fixed'))sql.exec('ALTER TABLE fin_moves ADD COLUMN fixed INTEGER NOT NULL DEFAULT 0');
  if(!fmCols.includes('split'))sql.exec("ALTER TABLE fin_moves ADD COLUMN split TEXT NOT NULL DEFAULT 'half'");
  sql.exec('CREATE INDEX IF NOT EXISTS fin_moves_group ON fin_moves(group_id)');
  // Avisos propios de cada destino (lo que vais aprendiendo: fiestas, ferias, subidas de precio…).

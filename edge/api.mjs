@@ -6,6 +6,7 @@ import {configured as googleConfigured, randomState, authorizationUrl, encryptTo
 import {configured as designConfigured, spec as designSpec, authUrl as designAuthUrl, tokenRequest as designTokenRequest, remote as designRemote, figmaKey, safeCanvaUrl} from './design-providers.mjs';
 import {config as pushConfigured,isAllowedPushEndpoint,sendPush,validKeys as validPushKeys} from './web-push.mjs';
 import {createV6,SHARED_CALENDAR_ID,AGENT_MODEL} from './v6.mjs';
+import {createNosotros} from './nosotros.mjs';
 import {createFinanzas,FIN_TABLES} from './finanzas.mjs';
 import {verifyRegistration,verifyAssertion,b64u} from './passkeys.mjs';
 export function createApi(storage, env, ctx) {
@@ -18,7 +19,8 @@ export function createApi(storage, env, ctx) {
  const PUBLIC_ORIGIN=String(env.PUBLIC_ORIGIN||'').replace(/\/$/,'');
  if(SETUP_TOKEN && SETUP_TOKEN.length<32)throw Error('SETUP_TOKEN demasiado corto');
  const v6=createV6({env,all,get,run,now,uid,saveFile,readFile,fileExists,removeFile,respond,fail,readBody,requireText,optional,choice,validDate,money,project,projectList,logChange,notify,logFree:(user,space,action,detail)=>{activity(null,space,user.id,action,detail);notifyPartner(user.id,null,space,action,detail);notify(space,null,user.id);}});
- const fin=createFinanzas({all,get,run,now,uid,respond,fail,readBody,requireText,choice,validDate,money,logFree:(user,space,action,detail)=>{activity(null,space,user.id,action,detail);notifyPartner(user.id,null,space,action,detail);notify(space,null,user.id);}});
+ const nosotros=createNosotros({all,get,run,now,uid,respond,fail,readBody,logFree:(user,space,action,detail)=>{activity(null,space,user.id,action,detail);notifyPartner(user.id,null,space,action,detail);notify(space,null,user.id);}});
+ const fin=createFinanzas({env,model:AGENT_MODEL,all,get,run,now,uid,respond,fail,readBody,requireText,choice,validDate,money,logFree:(user,space,action,detail)=>{activity(null,space,user.id,action,detail);notifyPartner(user.id,null,space,action,detail);notify(space,null,user.id);}});
 function respond(res,status,data,extra={}){if(res.writableEnded)return;res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extra});res.end(JSON.stringify(data));}
 function fail(status,message){const error=new Error(message);error.status=status;throw error;}
 function requireText(value,name,max=250){if(typeof value!=='string'||!value.trim()||value.trim().length>max)fail(400,`${name}: obligatorio, máximo ${max} caracteres`);return value.trim();}
@@ -58,7 +60,7 @@ function validDate(value){
 }
 function sha(token){return createHash('sha256').update(token).digest('hex');}
 // DUPLA 6: tablas y archivos extra que deben viajar en la copia completa.
-const V6_TABLES=['agent_memory','shared_settings','user_prefs','connections','calendar_marks','trip_days','couple_items','couple_lists','couple_list_items','project_quotes','meetings','meeting_segments','director_states','board_tasks','dest_notes','task_notes',...FIN_TABLES];
+const V6_TABLES=['agent_memory','shared_settings','user_prefs','connections','calendar_marks','trip_days','couple_items','couple_lists','couple_list_items','project_quotes','meetings','meeting_segments','director_states','board_tasks','dest_notes','task_notes','us_answers','us_checkins','us_notes','us_habits','us_habit_logs','us_profiles','idea_votes','idea_when',...FIN_TABLES];
 function v6Files(data){const out=[...(data.projects||[]).map(p=>p.cover_file),...(data.task_notes||[]).map(n=>n.stored_name),...(data.couple_items||[]).map(n=>n.photo),...(data.couple_list_items||[]).map(n=>n.photo),...(data.meeting_segments||[]).map(n=>String(n.audio||'').split('|')[0])].filter(Boolean);const av=(data.shared_settings||[]).find(r=>r.key==='dupla_avatar');if(av){try{out.push(JSON.parse(av.value));}catch{}}return out.filter(n=>typeof n==='string'&&/^[a-f0-9-]{36}$/.test(n));}
 // Nombre legible del dispositivo para «Sesiones activas» (solo sistema y navegador, nada identificable).
 function deviceName(ua=''){ua=String(ua);const os=/iPhone/.test(ua)?'iPhone':/iPad/.test(ua)?'iPad':/Android/.test(ua)?'Android':/Windows/.test(ua)?'Windows':/Mac OS X|Macintosh/.test(ua)?'Mac':/Linux/.test(ua)?'Linux':'Dispositivo';const br=/Edg\//.test(ua)?'Edge':/OPR\//.test(ua)?'Opera':/Firefox\//.test(ua)?'Firefox':/CriOS|Chrome\//.test(ua)?'Chrome':/Safari\//.test(ua)?'Safari':'Navegador';return `${os} · ${br}`;}
@@ -587,6 +589,7 @@ async function api(req,res,url){
    notifyPartner(who.id,null,'couple','apuntó con Siri',title);notify('couple',null,who.id);respond(res,201,{ok:true,tipo,respuesta:say});return;}
   fail(404,'Atajo desconocido');}
  const u=auth(req);
+ if(await nosotros.route(req,res,url,u))return;
  if(await v6.route(req,res,url,u))return;
  if(await fin.route(req,res,url,u))return;
  // Design providers are authorized separately for every DUPLA account.
@@ -1324,7 +1327,7 @@ async function api(req,res,url){
  }
  if(path==='/api/notifications'&&req.method==='GET'){
   // R0219-R0223/R0242: tipo, importante (manual o recordatorio) y estado real de entrega push por dispositivo.
-  const items=all(`SELECT n.*,users.name AS actor_name,p.title AS project_title,COALESCE(f.important,0) AS flagged,(SELECT group_concat(d.status) FROM push_delivery d WHERE d.notification_id=n.id) AS push_states FROM notifications n LEFT JOIN users ON users.id=n.actor_id LEFT JOIN projects p ON p.id=n.project_id LEFT JOIN notification_flags f ON f.notification_id=n.id WHERE n.user_id=? ORDER BY n.created_at DESC LIMIT 120`,u.id).map(({flagged,push_states,...n})=>{const st=String(push_states||'').split(',').filter(Boolean);return {...n,type:noticeType(n.action),reminder:/recordatorio/i.test(n.action),important:Boolean(flagged)||/recordatorio/i.test(n.action),push:!st.length?'none':st.includes('sent')?'sent':st.includes('pending')?'pending':st.includes('cancelled')?'cancelled':'failed'};});
+  const items=all(`SELECT n.*,users.name AS actor_name,p.title AS project_title,COALESCE(f.important,0) AS flagged,(SELECT group_concat(d.status) FROM push_delivery d WHERE d.notification_id=n.id) AS push_states FROM notifications n LEFT JOIN users ON users.id=n.actor_id LEFT JOIN projects p ON p.id=n.project_id LEFT JOIN notification_flags f ON f.notification_id=n.id WHERE n.user_id=? ORDER BY n.created_at DESC LIMIT 120`,u.id).map(({flagged,push_states,...n})=>{const st=String(push_states||'').split(',').filter(Boolean);return {...n,type:noticeType(n.action),reminder:/recordatorio/i.test(n.action),important:Boolean(flagged)||/recordatorio|te ha dejado una nota|te asign|urgente|vence|bloqueo|falta informaci|superado|saldó|pagó/i.test(n.action+' '+(n.detail||'')),push:!st.length?'none':st.includes('sent')?'sent':st.includes('pending')?'pending':st.includes('cancelled')?'cancelled':'failed'};});
   respond(res,200,{unread:get('SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND read_at IS NULL',u.id).n,items});return;
  }
  if(path==='/api/notifications/important'&&req.method==='POST'){
