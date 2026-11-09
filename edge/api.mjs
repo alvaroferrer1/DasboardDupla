@@ -2,7 +2,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createDB } from './db.mjs';
 import { validateWebhookUrl, extractTasksFromAI } from './integrations.mjs';
-import {configured as googleConfigured, randomState, authorizationUrl, encryptToken, decryptToken, tokenRequest, googleRequest, toGoogleEvent, validSharedCalendarId, validSharedEventId, normalizedSharedEvent} from './google-calendar.mjs';
+import {configured as googleConfigured, randomState, authorizationUrl, encryptToken, decryptToken, tokenRequest, googleRequest, toGoogleEvent, repeatRule, validSharedCalendarId, validSharedEventId, normalizedSharedEvent} from './google-calendar.mjs';
 import {configured as designConfigured, spec as designSpec, authUrl as designAuthUrl, tokenRequest as designTokenRequest, remote as designRemote, figmaKey, safeCanvaUrl} from './design-providers.mjs';
 import {config as pushConfigured,isAllowedPushEndpoint,sendPush,validKeys as validPushKeys} from './web-push.mjs';
 import {createV6,SHARED_CALENDAR_ID,AGENT_MODEL} from './v6.mjs';
@@ -30,7 +30,7 @@ function optional(value,max=12000){if(value===null||value===undefined)return '';
 function choice(value,options,defaultValue){const v=value??defaultValue;if(!options.includes(v))fail(400,'Valor no permitido');return v;}
 function validTime(value){if(value===undefined||value===null||value==='')return '';if(typeof value!=='string'||!/^([01]\d|2[0-3]):[0-5]\d$/.test(value))fail(400,'La hora debe tener formato HH:MM');return value;}
 function booking(value,defaultValue='pending'){return choice(value,['pending','booked','cancelled','not_needed'],defaultValue);}
-function recurrence(value, defaultValue='none'){return choice(value,['none','daily','weekly','monthly'],defaultValue);}
+function recurrence(value, defaultValue='none'){return choice(value,['none','daily','weekly','biweekly','weekdays','monthly','monthly_nth','yearly'],defaultValue);}
 function nextOccurrence(due,period,monthlyDay){
  if(period==='none')return null;
  // UTC arithmetic avoids timezone-dependent date drift; monthly dates clamp to month end.
@@ -38,6 +38,12 @@ function nextOccurrence(due,period,monthlyDay){
  let d=new Date(basis+'T12:00:00Z');
  if(period==='daily')d.setUTCDate(d.getUTCDate()+1);
  else if(period==='weekly')d.setUTCDate(d.getUTCDate()+7);
+ else if(period==='biweekly')d.setUTCDate(d.getUTCDate()+14);
+ else if(period==='weekdays'){do d.setUTCDate(d.getUTCDate()+1);while([0,6].includes(d.getUTCDay()));}
+ else if(period==='yearly')d.setUTCFullYear(d.getUTCFullYear()+1);
+ else if(period==='monthly_nth'){// El mismo día de la semana del mes que la fecha de la tarea (p. ej. el 1.er lunes; si era la última semana, el último).
+  const a=new Date((due||basis)+'T12:00:00Z'),wd=a.getUTCDay(),n=Math.ceil(a.getUTCDate()/7),dim=(y,m)=>new Date(Date.UTC(y,m+1,0)).getUTCDate(),last=dim(a.getUTCFullYear(),a.getUTCMonth())-a.getUTCDate()<7&&n>=4;
+  for(let k=0;k<15;k++){const y=d.getUTCFullYear(),m=d.getUTCMonth()+k,first=new Date(Date.UTC(y,m,1)),off=(wd-first.getUTCDay()+7)%7;let day=1+off+(n-1)*7;const max=dim(first.getUTCFullYear(),first.getUTCMonth());if(last||day>max){day=1+off;while(day+7<=max)day+=7;}const c=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth(),day,12));if(c.toISOString().slice(0,10)>basis){d=c;break;}}}
  else {const day=monthlyDay||d.getUTCDate();d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()+1);const last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();d.setUTCDate(Math.min(day,last));}
  return d.toISOString().slice(0,10);
 }
@@ -780,7 +786,7 @@ async function api(req,res,url){
   const cal=String(b.calendar_id||'');if(!JSON.parse(row.calendars).some(c=>c.id===cal))fail(400,'Calendario no válido');
   let token;try{token=await personalToken(row);}catch(ex){fail(409,ex.message);}const base='/calendars/'+encodeURIComponent(cal)+'/events';const why=ex=>ex.statusCode===403||ex.statusCode===401?fail(403,`${row.name.split(' ')[0]} tiene que volver a conectar sus calendarios para poder editarlos desde DUPLA.`):ex.statusCode===412?fail(409,'Ese evento cambió en Google. Actualiza antes de guardar.'):fail(502,'Google no guardó el cambio: '+ex.message);
   if(req.method==='DELETE'){const id=String(b.event_id||'');if(!validSharedEventId(id))fail(400,'Evento no válido');try{await googleRequest(token,'DELETE',base+'/'+encodeURIComponent(id));}catch(ex){if(ex.statusCode!==404&&ex.statusCode!==410)why(ex);}run("DELETE FROM place_cache WHERE kind='pcal'");notify('couple',null,u.id);respond(res,200,{ok:true});return;}
-  let body;try{body=normalizedSharedEvent(b);}catch(ex){fail(400,ex.message);}if(b.meet===true)body.conferenceData={createRequest:{requestId:'dupla-'+uid(),conferenceSolutionKey:{type:'hangoutsMeet'}}};const q=b.meet===true?'?conferenceDataVersion=1':'';
+  let body;try{body=normalizedSharedEvent(b);if(req.method==='POST'){const rr=repeatRule(b);if(rr)body.recurrence=[rr];}}catch(ex){fail(400,ex.message);}if(b.meet===true)body.conferenceData={createRequest:{requestId:'dupla-'+uid(),conferenceSolutionKey:{type:'hangoutsMeet'}}};const q=b.meet===true?'?conferenceDataVersion=1':'';
   let saved;try{if(req.method==='POST')saved=await googleRequest(token,'POST',base+q,body);else{const id=String(b.event_id||'');if(!validSharedEventId(id))fail(400,'Evento no válido');const cur=await googleRequest(token,'GET',base+'/'+encodeURIComponent(id));saved=await googleRequest(token,'PUT',base+'/'+encodeURIComponent(id)+q,{...cur,...body,conferenceData:body.conferenceData||cur.conferenceData},cur.etag?{'If-Match':cur.etag}:{});}}catch(ex){if(ex.status)throw ex;why(ex);}
   run("DELETE FROM place_cache WHERE kind='pcal'");notify('couple',null,u.id);respond(res,req.method==='POST'?201:200,{ok:true,id:saved?.id,meet:gEvent(saved||{}).meet});return;}
  if(path==='/api/calendar/merged'&&req.method==='GET'){const from=validDate(url.searchParams.get('from')),to=validDate(url.searchParams.get('to'));if(!from||!to||from>to)fail(400,'Rango no válido');respond(res,200,await mergedPersonal(from,to,url.searchParams.get('refresh')==='1'));return;}
@@ -796,7 +802,7 @@ async function api(req,res,url){
  }
  if(path==='/api/google/shared/events'&&req.method==='POST'){
   const {record,token}=await sharedAccess();const b=await readBody(req);let body;
-  try{body=normalizedSharedEvent(b);}catch(ex){fail(400,ex.message);}
+  try{body=normalizedSharedEvent(b);const rr=repeatRule(b);if(rr)body.recurrence=[rr];}catch(ex){fail(400,ex.message);}
   const requestId=String(b.request_id||'');
   if(requestId&&!/^[0-9a-f]{8}-[0-9a-f-]{27,45}$/.test(requestId))fail(400,'Identificador de solicitud inválido');
   if(requestId)body.id='d'+sha('dupla:calendar:'+requestId).slice(0,31);

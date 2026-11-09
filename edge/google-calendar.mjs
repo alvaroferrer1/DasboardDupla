@@ -32,6 +32,11 @@ export async function googleRequest(accessToken,method,path,body,headers={}){
 }
 export function validSharedCalendarId(id){return typeof id==='string'&&id.length>=3&&id.length<=250&&/^[A-Za-z0-9._@+-]+$/.test(id);}
 export function validSharedEventId(id){return typeof id==='string'&&id.length>=1&&id.length<=180&&/^[A-Za-z0-9_-]+$/.test(id);}
+// Repetición de un evento nuevo (Google la guarda como regla y la ve también el móvil).
+export function repeatRule(input){const r=String(input?.repeat||'none'),day=String(input?.date||''),until=String(input?.repeat_until||'');if(r==='none'||!/^\d{4}-\d{2}-\d{2}$/.test(day))return null;
+ const d=new Date(day+'T12:00:00Z'),DAYS=['SU','MO','TU','WE','TH','FR','SA'],n=Math.ceil(d.getUTCDate()/7),last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate()-d.getUTCDate()<7&&n>=4;
+ const base={daily:'FREQ=DAILY',weekly:'FREQ=WEEKLY',biweekly:'FREQ=WEEKLY;INTERVAL=2',weekdays:'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',monthly:'FREQ=MONTHLY',monthly_nth:`FREQ=MONTHLY;BYDAY=${n>=5||last?'-1':n}${DAYS[d.getUTCDay()]}`,yearly:'FREQ=YEARLY'}[r];if(!base)throw Error('Repetición no válida');
+ const u=/^\d{4}-\d{2}-\d{2}$/.test(until)&&until>=day?';UNTIL='+until.replace(/-/g,'')+'T235959Z':'';return 'RRULE:'+base+u;}
 export function normalizedSharedEvent(input){
  const title=String(input?.title||'').trim();
  if(!title||title.length>160)throw Error('Introduce un título de hasta 160 caracteres');
